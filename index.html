@@ -189,8 +189,15 @@
 
   // Barbell exercises use plate-based increments
   const barbellExercises = ['Bench Press', 'Incline Bench', 'Squat', 'Deadlift', 'OHP', 'Bent Row', 'Barbell Curl', 'Skull Crush', 'Close Grip', 'Leg Press'];
-  
+
   const isBarbell = (exerciseName) => barbellExercises.includes(exerciseName);
+
+  // Cardio exercises have different stats (time, distance, calories)
+  const cardioExercises = ['Treadmill', 'Bike', 'Rowing', 'Elliptical', 'Jump Rope'];
+  const isCardio = (exerciseName) => cardioExercises.includes(exerciseName);
+
+  // Cardio set state (duration in min, distance optional, calories)
+  const [newCardioSet, setNewCardioSet] = useState({ duration: 20, calories: 150 });
   
   // Plate increments for barbell exercises - just 2 common sizes
   // lbs: 10 and 45 (most common plates to add)
@@ -246,11 +253,15 @@
   // Get dates that have meals logged
   const datesWithMeals = [...new Set(meals.map(m => m.date))].sort().reverse();
   
-  // Weight conversion helpers (stored in kg, display in selected unit)
-  const kgToLbs = (kg) => (kg * 2.20462).toFixed(1);
-  const lbsToKg = (lbs) => (lbs / 2.20462).toFixed(1);
-  const displayWeight = (kg) => weightUnit === 'lbs' ? kgToLbs(kg) : kg;
-  const toKg = (val) => weightUnit === 'lbs' ? parseFloat(lbsToKg(val)) : val;
+  // Weight conversion helpers (stored in kg with full precision, display rounded)
+  const kgToLbs = (kg) => kg * 2.20462;
+  const lbsToKg = (lbs) => lbs / 2.20462;
+  const displayWeight = (kg) => {
+    if (kg === 0) return '0';
+    const val = weightUnit === 'lbs' ? kgToLbs(kg) : kg;
+    return Number(val.toFixed(1));
+  };
+  const toKg = (val) => weightUnit === 'lbs' ? lbsToKg(val) : val;
   
   const triStats = {
     swim: triSessions.filter(s => s.type === 'swim').reduce((sum, s) => sum + s.distance, 0),
@@ -302,12 +313,24 @@
   };
 
   const addSetToExercise = (exerciseId) => {
-    const weightInKg = weightUnit === 'lbs' ? parseFloat(lbsToKg(newSet.weight)) : newSet.weight;
+    const weightInKg = weightUnit === 'lbs' ? lbsToKg(newSet.weight) : newSet.weight;
     setActiveWorkout({
       ...activeWorkout,
       exercises: activeWorkout.exercises.map(ex =>
         ex.id === exerciseId
           ? { ...ex, sets: [...ex.sets, { id: Date.now().toString(), reps: newSet.reps, weight: weightInKg }] }
+          : ex
+      )
+    });
+    setShowAddSet(null);
+  };
+
+  const addCardioSetToExercise = (exerciseId) => {
+    setActiveWorkout({
+      ...activeWorkout,
+      exercises: activeWorkout.exercises.map(ex =>
+        ex.id === exerciseId
+          ? { ...ex, sets: [...ex.sets, { id: Date.now().toString(), duration: newCardioSet.duration, calories: newCardioSet.calories, isCardio: true }] }
           : ex
       )
     });
@@ -329,11 +352,14 @@
 
   const quickRepeat = (exerciseId, lastSet) => {
     if (lastSet) {
+      const newSetData = lastSet.isCardio
+        ? { id: Date.now().toString(), duration: lastSet.duration, calories: lastSet.calories, isCardio: true }
+        : { id: Date.now().toString(), reps: lastSet.reps, weight: lastSet.weight };
       setActiveWorkout({
         ...activeWorkout,
         exercises: activeWorkout.exercises.map(ex =>
           ex.id === exerciseId
-            ? { ...ex, sets: [...ex.sets, { id: Date.now().toString(), reps: lastSet.reps, weight: lastSet.weight }] }
+            ? { ...ex, sets: [...ex.sets, newSetData] }
             : ex
         )
       });
@@ -701,17 +727,17 @@
             </div>
 
             {!showAddWeight ? (
-              <button onClick={() => { setNewWeight(weightUnit === 'lbs' ? parseFloat(kgToLbs(currentWeight || 70)) : (currentWeight || 70)); setShowAddWeight(true); }} className="w-full bg-blue-600 rounded-xl py-4 text-xl font-bold">+ LOG WEIGHT</button>
+              <button onClick={() => { setNewWeight(weightUnit === 'lbs' ? Math.round(kgToLbs(currentWeight || 70)) : (currentWeight || 70)); setShowAddWeight(true); }} className="w-full bg-blue-600 rounded-xl py-4 text-xl font-bold">+ LOG WEIGHT</button>
             ) : (
               <div className="bg-gray-800 rounded-xl p-3 space-y-3">
                 <div className="text-center text-gray-400 text-sm">Weight ({weightUnit})</div>
                 <Stepper value={newWeight} onChange={setNewWeight} min={weightUnit === 'lbs' ? 66 : 30} max={weightUnit === 'lbs' ? 660 : 300} step={weightUnit === 'lbs' ? 1 : 0.5} big={weightUnit === 'lbs' ? 10 : 5} />
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={() => setShowAddWeight(false)} className="bg-gray-600 rounded-xl py-3 font-bold">CANCEL</button>
-                  <button onClick={() => { 
+                  <button onClick={() => {
                     const today = new Date();
                     const date = `${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}`;
-                    const weightInKg = weightUnit === 'lbs' ? parseFloat(lbsToKg(newWeight)) : newWeight;
+                    const weightInKg = weightUnit === 'lbs' ? lbsToKg(newWeight) : newWeight;
                     setWeightEntries([...weightEntries, { id: Date.now().toString(), weight: weightInKg, date }]);
                     setShowAddWeight(false);
                   }} className="bg-green-600 rounded-xl py-3 font-bold">SAVE</button>
@@ -766,7 +792,13 @@
                     <div key={ex.id} className="bg-gray-800 rounded-xl p-2">
                       <div className="text-purple-400 font-bold">{ex.name}</div>
                       {ex.sets.map((s, i) => (
-                        <div key={s.id} className="text-sm text-gray-300">Set {i + 1}: {s.reps} × {displayWeight(s.weight)}{weightUnit}</div>
+                        <div key={s.id} className="text-sm text-gray-300">
+                          {s.isCardio || isCardio(ex.name) ? (
+                            <>#{i + 1}: {s.duration}min • {s.calories}cal</>
+                          ) : (
+                            <>Set {i + 1}: {s.reps} × {displayWeight(s.weight)}{weightUnit}</>
+                          )}
+                        </div>
                       ))}
                     </div>
                   ))}
@@ -842,43 +874,65 @@
                       {ex.sets.map((s, i) => (
                         <div key={s.id} className="flex justify-between bg-gray-700 rounded-lg px-2 py-1 mb-1">
                           <span className="text-gray-400">#{i + 1}</span>
-                          <span className="font-bold">{s.reps} × {displayWeight(s.weight)}{weightUnit}</span>
+                          {s.isCardio || isCardio(ex.name) ? (
+                            <span className="font-bold">{s.duration}min • {s.calories}cal</span>
+                          ) : (
+                            <span className="font-bold">{s.reps} × {displayWeight(s.weight)}{weightUnit}</span>
+                          )}
                           <button onClick={() => removeSet(ex.id, s.id)} className="text-red-400 bg-transparent">✕</button>
                         </div>
                       ))}
 
                       {showAddSet === ex.id ? (
-                        <div className="space-y-2 mt-2">
-                          <div className="text-center text-xs text-gray-400">REPS</div>
-                          <Stepper value={newSet.reps} onChange={(v) => setNewSet({ ...newSet, reps: v })} min={1} max={100} step={1} big={5} />
-                          <div className="text-center text-xs text-gray-400">
-                            WEIGHT ({weightUnit}) {isBarbell(ex.name) && <span className="text-purple-400">• plates</span>}
+                        isCardio(ex.name) ? (
+                          <div className="space-y-2 mt-2">
+                            <div className="text-center text-xs text-gray-400">TIME (min)</div>
+                            <Stepper value={newCardioSet.duration} onChange={(v) => setNewCardioSet({ ...newCardioSet, duration: v })} min={1} max={180} step={1} big={5} />
+                            <div className="text-center text-xs text-gray-400">CALORIES</div>
+                            <Stepper value={newCardioSet.calories} onChange={(v) => setNewCardioSet({ ...newCardioSet, calories: v })} min={0} max={2000} step={5} big={25} />
+                            <div className="grid grid-cols-2 gap-2">
+                              <button onClick={() => setShowAddSet(null)} className="bg-gray-600 rounded-lg py-3 font-bold">CANCEL</button>
+                              <button onClick={() => addCardioSetToExercise(ex.id)} className="bg-green-600 rounded-lg py-3 font-bold">ADD</button>
+                            </div>
                           </div>
-                          <Stepper 
-                            value={newSet.weight} 
-                            onChange={(v) => setNewSet({ ...newSet, weight: v })} 
-                            min={0} 
-                            max={weightUnit === 'lbs' ? 1100 : 500} 
-                            step={weightUnit === 'lbs' ? 5 : 2.5}
-                            big={weightUnit === 'lbs' ? 10 : 5}
-                            plates={isBarbell(ex.name) ? getPlates() : null}
-                          />
-                          <div className="grid grid-cols-2 gap-2">
-                            <button onClick={() => setShowAddSet(null)} className="bg-gray-600 rounded-lg py-3 font-bold">CANCEL</button>
-                            <button onClick={() => addSetToExercise(ex.id)} className="bg-green-600 rounded-lg py-3 font-bold">ADD</button>
+                        ) : (
+                          <div className="space-y-2 mt-2">
+                            <div className="text-center text-xs text-gray-400">REPS</div>
+                            <Stepper value={newSet.reps} onChange={(v) => setNewSet({ ...newSet, reps: v })} min={1} max={100} step={1} big={5} />
+                            <div className="text-center text-xs text-gray-400">
+                              WEIGHT ({weightUnit}) {isBarbell(ex.name) && <span className="text-purple-400">• plates</span>}
+                            </div>
+                            <Stepper
+                              value={newSet.weight}
+                              onChange={(v) => setNewSet({ ...newSet, weight: v })}
+                              min={0}
+                              max={weightUnit === 'lbs' ? 1100 : 500}
+                              step={weightUnit === 'lbs' ? 5 : 2.5}
+                              big={weightUnit === 'lbs' ? 10 : 5}
+                              plates={isBarbell(ex.name) ? getPlates() : null}
+                            />
+                            <div className="grid grid-cols-2 gap-2">
+                              <button onClick={() => setShowAddSet(null)} className="bg-gray-600 rounded-lg py-3 font-bold">CANCEL</button>
+                              <button onClick={() => addSetToExercise(ex.id)} className="bg-green-600 rounded-lg py-3 font-bold">ADD</button>
+                            </div>
                           </div>
-                        </div>
+                        )
                       ) : (
                         <div className="grid grid-cols-2 gap-1 mt-1">
-                          <button onClick={() => { 
-                            const lastWeight = ex.sets.length > 0 ? ex.sets[ex.sets.length - 1].weight : (isBarbell(ex.name) ? 20 : 20);
-                            const displayW = weightUnit === 'lbs' ? parseFloat(kgToLbs(lastWeight)) : lastWeight;
-                            const defaultWeight = isBarbell(ex.name) 
-                              ? (weightUnit === 'lbs' ? 45 : 20)  // Bar weight as default
-                              : (weightUnit === 'lbs' ? 20 : 10);
-                            setNewSet(ex.sets.length > 0 ? { reps: ex.sets[ex.sets.length - 1].reps, weight: displayW } : { reps: 10, weight: defaultWeight }); 
-                            setShowAddSet(ex.id); 
-                          }} className="bg-blue-600 rounded-lg py-2 font-bold">+ SET</button>
+                          <button onClick={() => {
+                            if (isCardio(ex.name)) {
+                              const lastSet = ex.sets.length > 0 ? ex.sets[ex.sets.length - 1] : null;
+                              setNewCardioSet(lastSet ? { duration: lastSet.duration, calories: lastSet.calories } : { duration: 20, calories: 150 });
+                            } else {
+                              const lastWeight = ex.sets.length > 0 ? ex.sets[ex.sets.length - 1].weight : (isBarbell(ex.name) ? 20 : 20);
+                              const displayW = weightUnit === 'lbs' ? Math.round(kgToLbs(lastWeight) / 5) * 5 : lastWeight;
+                              const defaultWeight = isBarbell(ex.name)
+                                ? (weightUnit === 'lbs' ? 45 : 20)  // Bar weight as default
+                                : (weightUnit === 'lbs' ? 20 : 10);
+                              setNewSet(ex.sets.length > 0 ? { reps: ex.sets[ex.sets.length - 1].reps, weight: displayW } : { reps: 10, weight: defaultWeight });
+                            }
+                            setShowAddSet(ex.id);
+                          }} className="bg-blue-600 rounded-lg py-2 font-bold">{isCardio(ex.name) ? '+ LOG' : '+ SET'}</button>
                           {ex.sets.length > 0 && (
                             <button onClick={() => quickRepeat(ex.id, ex.sets[ex.sets.length - 1])} className="bg-green-600 rounded-lg py-2 font-bold">↺ SAME</button>
                           )}
