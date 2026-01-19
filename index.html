@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  
+  <!-- PWA Meta Tags -->
+  <meta name="theme-color" content="#9333ea">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="FitTrack">
+  
+  <!-- Manifest -->
+  <link rel="manifest" href="./manifest.json">
+  
+  <title>Fitness Tracker</title>
+  
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide-react@0.263.1/dist/umd/lucide-react.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; }
+    #root { min-height: 100vh; }
+    .error-display {
+      padding: 20px;
+      background: #fee2e2;
+      color: #dc2626;
+      font-family: monospace;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('SW registered:', reg.scope))
+          .catch(err => console.log('SW registration failed:', err));
+      });
+    }
+  </script>
+  
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useRef, useCallback, useMemo, useContext, createContext } = React;
+
+    // Make Lucide icons available
+    const Icons = window.lucideReact || {};
+
+    // Error boundary component
+    class ErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+      }
+      static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+      }
+      render() {
+        if (this.state.hasError) {
+          return React.createElement('div', { className: 'error-display' },
+            'Error rendering component:\n' + this.state.error?.message
+          );
+        }
+        return this.props.children;
+      }
+    }
+
+    try {
+      const __Component__ = function FitnessTracker() {
+  const [activeTab, setActiveTab] = useState('cal');
+  
+  const loadData = (key, defaultValue) => {
+    try {
+      const saved = localStorage.getItem(key);
+      return saved ? JSON.parse(saved) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  };
+
+  // States
+  const [meals, setMeals] = useState(() => {
+    const loaded = loadData('meals', []);
+    // Migrate old meals without dates to today
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    return loaded.map(m => m.date ? m : { ...m, date: todayStr });
+  });
+  const [newMeal, setNewMeal] = useState({ name: '', calories: 300 });
+  const [calorieGoal, setCalorieGoal] = useState(() => loadData('calorieGoal', 2000));
+  const [showAddMeal, setShowAddMeal] = useState(false);
+  const [calInputMode, setCalInputMode] = useState('stepper'); // 'stepper' or 'text'
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  });
+
+  const [weightEntries, setWeightEntries] = useState(() => loadData('weightEntries', []));
+  const [newWeight, setNewWeight] = useState(70);
+  const [goalWeight, setGoalWeight] = useState(() => loadData('goalWeight', 70));
+  const [showAddWeight, setShowAddWeight] = useState(false);
+  const [weightUnit, setWeightUnit] = useState(() => loadData('weightUnit', 'kg'));
+
+  const [gymSessions, setGymSessions] = useState(() => loadData('gymSessions', []));
+  const [activeWorkout, setActiveWorkout] = useState(() => loadData('activeWorkout', null));
+  const [showExercisePicker, setShowExercisePicker] = useState(false);
+  const [showAddSet, setShowAddSet] = useState(null);
+  const [newSet, setNewSet] = useState({ reps: 10, weight: 20 });
+  const [viewingSession, setViewingSession] = useState(null);
+  const [filterCategory, setFilterCategory] = useState('chest');
+
+  const [triSessions, setTriSessions] = useState(() => loadData('triSessions', []));
+  const [newTri, setNewTri] = useState({ type: 'swim', distance: 0 });
+  const [showAddTri, setShowAddTri] = useState(false);
+
+  // PWA Install States
+  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showManualInstall, setShowManualInstall] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
+
+  // Check if already installed (running as standalone)
+  useEffect(() => {
+    const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches 
+      || window.navigator.standalone 
+      || document.referrer.includes('android-app://');
+    setIsStandalone(isInStandaloneMode);
+    
+    // On Cat S22 / Android Go - show manual install banner immediately if not dismissed
+    const dismissed = localStorage.getItem('installDismissed');
+    if (!isInStandaloneMode && !dismissed) {
+      // Show manual instructions right away (don't wait for beforeinstallprompt)
+      setShowManualInstall(true);
+    }
+  }, []);
+
+  // PWA Install - Listen for beforeinstallprompt (might not fire on Cat S22)
+  useEffect(() => {
+    if (isStandalone) return;
+    
+    const handler = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      // If native prompt is available, use it instead of manual
+      setShowManualInstall(false);
+      setShowInstallPrompt(true);
+    };
+    
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, [isStandalone]);
+
+  const installApp = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      setDeferredPrompt(null);
+      setShowInstallPrompt(false);
+      if (outcome === 'accepted') {
+        localStorage.setItem('installDismissed', 'true');
+      }
+    }
+  };
+
+  const dismissInstall = () => {
+    setShowInstallPrompt(false);
+    setShowManualInstall(false);
+    localStorage.setItem('installDismissed', 'true');
+  };
+
+  const exerciseDatabase = {
+    chest: ['Bench Press', 'Incline Bench', 'DB Press', 'DB Flyes', 'Cable Cross', 'Push Ups', 'Dips'],
+    back: ['Pull Ups', 'Lat Pulldown', 'Seated Row', 'Bent Row', 'Deadlift', 'Face Pulls'],
+    shoulders: ['OHP', 'DB Press', 'Lateral Raise', 'Front Raise', 'Rear Delts'],
+    biceps: ['Barbell Curl', 'DB Curl', 'Hammer Curl', 'Preacher Curl', 'Cable Curl'],
+    triceps: ['Pushdown', 'Overhead Ext', 'Skull Crush', 'Close Grip', 'Dips'],
+    legs: ['Squat', 'Leg Press', 'Lunges', 'Leg Ext', 'Leg Curl', 'Calf Raise'],
+    core: ['Plank', 'Crunches', 'Leg Raises', 'Ab Wheel', 'Cable Crunch'],
+    cardio: ['Treadmill', 'Bike', 'Rowing', 'Elliptical', 'Jump Rope']
+  };
+
+  // Barbell exercises use plate-based increments
+  const barbellExercises = ['Bench Press', 'Incline Bench', 'Squat', 'Deadlift', 'OHP', 'Bent Row', 'Barbell Curl', 'Skull Crush', 'Close Grip', 'Leg Press'];
+  
+  const isBarbell = (exerciseName) => barbellExercises.includes(exerciseName);
+  
+  // Plate increments for barbell exercises - just 2 common sizes
+  // lbs: 10 and 45 (most common plates to add)
+  // kg: 5 and 20
+  const getPlates = () => {
+    return weightUnit === 'lbs' ? [10, 45] : [5, 20];
+  };
+
+  const categoryEmojis = {
+    chest: '🫁', back: '🔙', shoulders: '🎯', biceps: '💪',
+    triceps: '🦾', legs: '🦵', core: '🧘', cardio: '❤️'
+  };
+
+  // Save effects
+  useEffect(() => { localStorage.setItem('meals', JSON.stringify(meals)); }, [meals]);
+  useEffect(() => { localStorage.setItem('calorieGoal', JSON.stringify(calorieGoal)); }, [calorieGoal]);
+  useEffect(() => { localStorage.setItem('weightEntries', JSON.stringify(weightEntries)); }, [weightEntries]);
+  useEffect(() => { localStorage.setItem('goalWeight', JSON.stringify(goalWeight)); }, [goalWeight]);
+  useEffect(() => { localStorage.setItem('weightUnit', JSON.stringify(weightUnit)); }, [weightUnit]);
+  useEffect(() => { localStorage.setItem('gymSessions', JSON.stringify(gymSessions)); }, [gymSessions]);
+  useEffect(() => { localStorage.setItem('activeWorkout', JSON.stringify(activeWorkout)); }, [activeWorkout]);
+  useEffect(() => { localStorage.setItem('triSessions', JSON.stringify(triSessions)); }, [triSessions]);
+
+  const totalCal = meals.filter(m => m.date === selectedDate).reduce((sum, m) => sum + m.calories, 0);
+  const currentWeight = weightEntries.length > 0 ? weightEntries[weightEntries.length - 1].weight : 0;
+  
+  // Date helpers
+  const formatDisplayDate = (dateStr) => {
+    const date = new Date(dateStr + 'T00:00:00');
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+    
+    if (dateStr === todayStr) return 'Today';
+    if (dateStr === yesterdayStr) return 'Yesterday';
+    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+  
+  const changeDate = (days) => {
+    const date = new Date(selectedDate + 'T00:00:00');
+    date.setDate(date.getDate() + days);
+    setSelectedDate(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`);
+  };
+  
+  const isToday = () => {
+    const today = new Date();
+    return selectedDate === `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  };
+  
+  // Get dates that have meals logged
+  const datesWithMeals = [...new Set(meals.map(m => m.date))].sort().reverse();
+  
+  // Weight conversion helpers (stored in kg, display in selected unit)
+  const kgToLbs = (kg) => (kg * 2.20462).toFixed(1);
+  const lbsToKg = (lbs) => (lbs / 2.20462).toFixed(1);
+  const displayWeight = (kg) => weightUnit === 'lbs' ? kgToLbs(kg) : kg;
+  const toKg = (val) => weightUnit === 'lbs' ? parseFloat(lbsToKg(val)) : val;
+  
+  const triStats = {
+    swim: triSessions.filter(s => s.type === 'swim').reduce((sum, s) => sum + s.distance, 0),
+    bike: triSessions.filter(s => s.type === 'bike').reduce((sum, s) => sum + s.distance, 0),
+    run: triSessions.filter(s => s.type === 'run').reduce((sum, s) => sum + s.distance, 0),
+  };
+
+  const addMeal = () => {
+    const cals = typeof newMeal.calories === 'string' ? parseInt(newMeal.calories) : newMeal.calories;
+    if (newMeal.name && cals > 0) {
+      setMeals([{ id: Date.now().toString(), name: newMeal.name, calories: cals, date: selectedDate }, ...meals]);
+      setNewMeal({ name: '', calories: 300 });
+      setShowAddMeal(false);
+    }
+  };
+
+  const addWeight = () => {
+    const today = new Date();
+    const date = `${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}`;
+    setWeightEntries([...weightEntries, { id: Date.now().toString(), weight: newWeight, date }]);
+    setShowAddWeight(false);
+  };
+
+  const startWorkout = () => {
+    const now = new Date();
+    setActiveWorkout({
+      id: Date.now().toString(),
+      startTime: now.toISOString(),
+      date: now.toLocaleDateString(),
+      time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      exercises: []
+    });
+  };
+
+  const endWorkout = () => {
+    if (activeWorkout && activeWorkout.exercises.length > 0) {
+      const duration = Math.round((new Date() - new Date(activeWorkout.startTime)) / 60000);
+      setGymSessions([{ ...activeWorkout, duration }, ...gymSessions]);
+    }
+    setActiveWorkout(null);
+  };
+
+  const addExercise = (name) => {
+    setActiveWorkout({
+      ...activeWorkout,
+      exercises: [...activeWorkout.exercises, { id: Date.now().toString(), name, sets: [] }]
+    });
+    setShowExercisePicker(false);
+  };
+
+  const addSetToExercise = (exerciseId) => {
+    const weightInKg = weightUnit === 'lbs' ? parseFloat(lbsToKg(newSet.weight)) : newSet.weight;
+    setActiveWorkout({
+      ...activeWorkout,
+      exercises: activeWorkout.exercises.map(ex =>
+        ex.id === exerciseId
+          ? { ...ex, sets: [...ex.sets, { id: Date.now().toString(), reps: newSet.reps, weight: weightInKg }] }
+          : ex
+      )
+    });
+    setShowAddSet(null);
+  };
+
+  const removeSet = (exerciseId, setId) => {
+    setActiveWorkout({
+      ...activeWorkout,
+      exercises: activeWorkout.exercises.map(ex =>
+        ex.id === exerciseId ? { ...ex, sets: ex.sets.filter(s => s.id !== setId) } : ex
+      )
+    });
+  };
+
+  const removeExercise = (exerciseId) => {
+    setActiveWorkout({ ...activeWorkout, exercises: activeWorkout.exercises.filter(ex => ex.id !== exerciseId) });
+  };
+
+  const quickRepeat = (exerciseId, lastSet) => {
+    if (lastSet) {
+      setActiveWorkout({
+        ...activeWorkout,
+        exercises: activeWorkout.exercises.map(ex =>
+          ex.id === exerciseId
+            ? { ...ex, sets: [...ex.sets, { id: Date.now().toString(), reps: lastSet.reps, weight: lastSet.weight }] }
+            : ex
+        )
+      });
+    }
+  };
+
+  const addTri = () => {
+    if (newTri.distance > 0) {
+      setTriSessions([{ id: Date.now().toString(), ...newTri }, ...triSessions]);
+      setNewTri({ type: 'swim', distance: 0 });
+      setShowAddTri(false);
+    }
+  };
+
+  const Stepper = ({ value, onChange, min = 0, max = 999, step = 1, big = 5, plates = null }) => (
+    <div className="flex items-center justify-center gap-1">
+      {plates && plates.slice().reverse().map(p => (
+        <button key={`minus-${p}`} onClick={() => onChange(Math.max(min, value - p))} className="bg-purple-700 rounded-lg py-2 px-2 text-sm font-bold active:bg-purple-500">{p}</button>
+      ))}
+      {!plates && <button onClick={() => onChange(Math.max(min, value - big))} className="bg-gray-700 rounded-lg py-2 px-2 text-sm font-bold active:bg-gray-600">{big}</button>}
+      <button onClick={() => onChange(Math.max(min, value - step))} className="bg-gray-700 rounded-lg py-2 px-3 text-lg font-bold active:bg-gray-600">−</button>
+      <div className="bg-gray-900 rounded-lg py-2 px-2 min-w-12 text-center text-xl font-bold">{value}</div>
+      <button onClick={() => onChange(Math.min(max, value + step))} className="bg-gray-700 rounded-lg py-2 px-3 text-lg font-bold active:bg-gray-600">+</button>
+      {!plates && <button onClick={() => onChange(Math.min(max, value + big))} className="bg-gray-700 rounded-lg py-2 px-2 text-sm font-bold active:bg-gray-600">{big}</button>}
+      {plates && plates.map(p => (
+        <button key={`plus-${p}`} onClick={() => onChange(Math.min(max, value + p))} className="bg-purple-700 rounded-lg py-2 px-2 text-sm font-bold active:bg-purple-500">{p}</button>
+      ))}
+    </div>
+  );
+  
+  // Tim Hortons Database
+  const timHortonsMenu = {
+    'Coffee': [
+      { name: 'Original Blend - Small', cal: 3 },
+      { name: 'Original Blend - Medium', cal: 4 },
+      { name: 'Original Blend - Large', cal: 5 },
+      { name: 'Double Double - Small', cal: 70 },
+      { name: 'Double Double - Medium', cal: 100 },
+      { name: 'Double Double - Large', cal: 120 },
+      { name: 'Double Double - XL', cal: 150 },
+      { name: 'French Vanilla Cap - S', cal: 220 },
+      { name: 'French Vanilla Cap - M', cal: 280 },
+      { name: 'French Vanilla Cap - L', cal: 380 },
+      { name: 'Latte - Small', cal: 80 },
+      { name: 'Latte - Medium', cal: 120 },
+      { name: 'Latte - Large', cal: 170 },
+    ],
+    'Iced & Cold': [
+      { name: 'Iced Coffee - Small', cal: 120 },
+      { name: 'Iced Coffee - Medium', cal: 150 },
+      { name: 'Iced Coffee - Large', cal: 240 },
+      { name: 'Iced Capp - Small', cal: 260 },
+      { name: 'Iced Capp - Medium', cal: 330 },
+      { name: 'Iced Capp - Large', cal: 430 },
+      { name: 'Cold Brew - Small', cal: 120 },
+      { name: 'Cold Brew - Medium', cal: 160 },
+      { name: 'Cold Brew - Large', cal: 240 },
+      { name: 'Iced Latte - Small', cal: 150 },
+      { name: 'Iced Latte - Medium', cal: 200 },
+      { name: 'Iced Latte - Large', cal: 250 },
+    ],
+    'Tea & Hot Choc': [
+      { name: 'Steeped Tea', cal: 0 },
+      { name: 'London Fog - Small', cal: 110 },
+      { name: 'London Fog - Medium', cal: 160 },
+      { name: 'London Fog - Large', cal: 240 },
+      { name: 'Hot Chocolate - Small', cal: 190 },
+      { name: 'Hot Chocolate - Medium', cal: 250 },
+      { name: 'Hot Chocolate - Large', cal: 330 },
+    ],
+    'Donuts': [
+      { name: 'Boston Cream', cal: 250 },
+      { name: 'Apple Fritter', cal: 330 },
+      { name: 'Chocolate Dip', cal: 220 },
+      { name: 'Honey Dip', cal: 220 },
+      { name: 'Maple Dip', cal: 240 },
+      { name: 'Old Fashioned Glazed', cal: 310 },
+      { name: 'Old Fashioned Plain', cal: 280 },
+      { name: 'Sour Cream Glazed', cal: 310 },
+      { name: 'Honey Cruller', cal: 310 },
+      { name: 'Chocolate Glazed', cal: 260 },
+      { name: 'Strawberry Vanilla', cal: 330 },
+      { name: 'Canadian Maple', cal: 240 },
+      { name: 'Double Chocolate', cal: 310 },
+    ],
+    'Timbits': [
+      { name: 'Timbit - Birthday Cake', cal: 80 },
+      { name: 'Timbit - Chocolate Glaze', cal: 70 },
+      { name: 'Timbit - Honey Dip', cal: 50 },
+      { name: 'Timbit - Old Fash Plain', cal: 70 },
+      { name: 'Timbit - Sour Cream', cal: 90 },
+      { name: 'Timbit - Filled', cal: 80 },
+    ],
+    'Muffins': [
+      { name: 'Chocolate Chip Muffin', cal: 420 },
+      { name: 'Blueberry Muffin', cal: 380 },
+      { name: 'Fruit Explosion Muffin', cal: 360 },
+      { name: 'Raisin Bran Muffin', cal: 380 },
+      { name: 'Carrot Walnut Muffin', cal: 360 },
+      { name: 'Banana Pecan Muffin', cal: 340 },
+    ],
+    'Bagels': [
+      { name: 'Plain Bagel', cal: 290 },
+      { name: 'Everything Bagel', cal: 290 },
+      { name: 'Sesame Bagel', cal: 310 },
+      { name: '12-Grain Bagel', cal: 320 },
+      { name: 'Cinnamon Raisin Bagel', cal: 290 },
+      { name: 'w/ Cream Cheese +', cal: 100 },
+      { name: 'w/ Butter +', cal: 100 },
+    ],
+    'Breakfast': [
+      { name: 'Bacon English Muffin', cal: 350 },
+      { name: 'Sausage English Muffin', cal: 450 },
+      { name: 'Egg & Cheese English Muffin', cal: 270 },
+      { name: 'Bacon Bagel Sandwich', cal: 480 },
+      { name: 'Sausage Bagel Sandwich', cal: 600 },
+      { name: 'Bacon Biscuit', cal: 410 },
+      { name: 'Sausage Biscuit', cal: 530 },
+      { name: 'Bacon Wrap', cal: 530 },
+      { name: 'Sausage Wrap', cal: 640 },
+      { name: 'Hash Brown', cal: 120 },
+      { name: 'Yogurt Parfait', cal: 250 },
+    ],
+    'Lunch': [
+      { name: 'BLT Sandwich', cal: 460 },
+      { name: 'Ham & Cheddar', cal: 420 },
+      { name: 'Turkey Bacon Club', cal: 470 },
+      { name: 'Roast Beef & Cheddar', cal: 380 },
+      { name: 'Chicken Wrap', cal: 490 },
+      { name: 'Crispy Chicken Wrap', cal: 550 },
+      { name: 'Grilled Cheese Melt', cal: 500 },
+      { name: 'Bacon Grilled Cheese', cal: 600 },
+      { name: 'Ham Melt', cal: 550 },
+    ],
+    'Soups & Sides': [
+      { name: 'Chicken Noodle - Reg', cal: 140 },
+      { name: 'Chicken Noodle - Large', cal: 190 },
+      { name: 'Tomato Parmesan - Reg', cal: 100 },
+      { name: 'Tomato Parmesan - Large', cal: 150 },
+      { name: 'Cream of Broccoli - Reg', cal: 150 },
+      { name: 'Cream of Broccoli - Large', cal: 210 },
+      { name: 'Chili - Regular', cal: 310 },
+      { name: 'Chili - Large', cal: 430 },
+      { name: 'Potato Wedges', cal: 380 },
+    ],
+    'Cookies': [
+      { name: 'Chocolate Chunk Cookie', cal: 260 },
+      { name: 'Caramel Chocolate Cookie', cal: 280 },
+      { name: 'Double Choc Brownie', cal: 290 },
+      { name: 'Dream Cookie', cal: 350 },
+    ],
+  };
+  
+  // Food source selection state
+  const [foodSource, setFoodSource] = useState('custom'); // 'custom' or 'timhortons'
+  const [timCategory, setTimCategory] = useState('Coffee');
+  const [selectedTimItem, setSelectedTimItem] = useState(null);
+
+  return (
+    <div className="min-h-screen bg-black text-white pb-4">
+      {/* Native Install Banner (Chrome's beforeinstallprompt fired) */}
+      {showInstallPrompt && !isStandalone && (
+        <div className="bg-purple-600 p-3 flex justify-between items-center">
+          <span className="text-sm font-bold">📲 Add to Home Screen</span>
+          <div className="flex gap-2">
+            <button onClick={dismissInstall} className="bg-gray-800 rounded px-3 py-1 text-sm">Later</button>
+            <button onClick={installApp} className="bg-white text-purple-600 rounded px-3 py-1 text-sm font-bold">Install</button>
+          </div>
+        </div>
+      )}
+      
+      {/* Manual Install Instructions - Shows immediately on Cat S22 */}
+      {showManualInstall && !showInstallPrompt && !isStandalone && (
+        <div className="bg-purple-600 p-3">
+          <div className="flex justify-between items-center mb-2">
+            <span className="font-bold">📲 Add to Home Screen</span>
+            <button onClick={dismissInstall} className="bg-gray-800 rounded-full w-7 h-7 text-lg">×</button>
+          </div>
+          <div className="bg-purple-700 rounded-lg p-2 text-sm space-y-1">
+            <p><strong>1.</strong> Tap <strong>⋮</strong> (top right)</p>
+            <p><strong>2.</strong> Tap "Add to Home screen"</p>
+            <p><strong>3.</strong> Tap "Add"</p>
+          </div>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="grid grid-cols-4 gap-1 p-1 bg-gray-900 sticky top-0 z-10">
+        {[{ id: 'cal', icon: '🔥' }, { id: 'wgt', icon: '⚖️' }, { id: 'gym', icon: '💪' }, { id: 'set', icon: '⚙️' }].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => { setActiveTab(tab.id); setViewingSession(null); }}
+            className={`py-4 text-2xl rounded-lg relative ${activeTab === tab.id ? 'bg-purple-600' : 'bg-gray-800'}`}
+          >
+            {tab.icon}
+            {tab.id === 'gym' && activeWorkout && <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />}
+          </button>
+        ))}
+      </div>
+
+      <div className="p-2">
+        {/* CALORIES */}
+        {activeTab === 'cal' && (
+          <div className="space-y-2">
+            {/* Date Navigator */}
+            <div className="flex items-center justify-between bg-gray-800 rounded-xl p-2">
+              <button onClick={() => changeDate(-1)} className="bg-gray-700 rounded-lg py-2 px-3 text-lg font-bold">←</button>
+              <div className="text-center">
+                <div className="font-bold">{formatDisplayDate(selectedDate)}</div>
+                {!isToday() && <button onClick={() => {
+                  const today = new Date();
+                  setSelectedDate(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`);
+                }} className="text-xs text-purple-400 bg-transparent">go to today</button>}
+              </div>
+              <button onClick={() => changeDate(1)} className="bg-gray-700 rounded-lg py-2 px-3 text-lg font-bold" disabled={isToday()}>→</button>
+            </div>
+
+            {!showAddMeal ? (
+              <button onClick={() => setShowAddMeal(true)} className="w-full bg-purple-600 rounded-xl py-4 text-xl font-bold">+ ADD MEAL</button>
+            ) : (
+              <div className="bg-gray-800 rounded-xl p-3 space-y-2">
+                {/* Toggle between Custom and Tim Hortons */}
+                <div className="flex justify-center">
+                  <div className="bg-gray-700 rounded-lg p-1 flex text-sm">
+                    <button onClick={() => { setFoodSource('custom'); setSelectedTimItem(null); }} className={`px-3 py-1 rounded-md font-bold ${foodSource === 'custom' ? 'bg-purple-600' : ''}`}>Custom</button>
+                    <button onClick={() => { setFoodSource('timhortons'); setNewMeal({ name: '', calories: 0 }); }} className={`px-3 py-1 rounded-md font-bold ${foodSource === 'timhortons' ? 'bg-red-600' : ''}`}>☕ Tims</button>
+                  </div>
+                </div>
+                
+                {foodSource === 'custom' ? (
+                  <>
+                    <input type="text" placeholder="Food name" value={newMeal.name} onChange={(e) => setNewMeal({ ...newMeal, name: e.target.value })} className="w-full bg-gray-700 rounded-xl px-4 py-3 text-lg" />
+                    
+                    {/* Toggle between stepper and text input */}
+                    <div className="flex justify-center">
+                      <div className="bg-gray-700 rounded-lg p-1 flex text-sm">
+                        <button onClick={() => setCalInputMode('stepper')} className={`px-3 py-1 rounded-md font-bold ${calInputMode === 'stepper' ? 'bg-purple-600' : ''}`}>± Buttons</button>
+                        <button onClick={() => setCalInputMode('text')} className={`px-3 py-1 rounded-md font-bold ${calInputMode === 'text' ? 'bg-purple-600' : ''}`}>Type</button>
+                      </div>
+                    </div>
+                    
+                    {calInputMode === 'stepper' ? (
+                      <div className="space-y-1">
+                        <div className="text-center text-xs text-gray-400">CALORIES</div>
+                        <Stepper 
+                          value={typeof newMeal.calories === 'string' ? parseInt(newMeal.calories) || 0 : newMeal.calories} 
+                          onChange={(v) => setNewMeal({ ...newMeal, calories: v })} 
+                          min={0} 
+                          max={5000} 
+                          step={10}
+                          plates={[50, 100, 250]}
+                        />
+                      </div>
+                    ) : (
+                      <input type="number" placeholder="Calories" value={newMeal.calories} onChange={(e) => setNewMeal({ ...newMeal, calories: e.target.value })} className="w-full bg-gray-700 rounded-xl px-4 py-3 text-lg text-center" />
+                    )}
+                    
+                    {/* Quick add buttons */}
+                    <div className="grid grid-cols-4 gap-1">
+                      {[100, 200, 300, 500].map(cal => (
+                        <button key={cal} onClick={() => setNewMeal({ ...newMeal, calories: cal })} className={`py-2 rounded-lg text-sm font-bold ${newMeal.calories === cal ? 'bg-purple-600' : 'bg-gray-700'}`}>{cal}</button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {/* Tim Hortons Category Selection */}
+                    <div className="flex flex-wrap gap-1 justify-center">
+                      {Object.keys(timHortonsMenu).map(cat => (
+                        <button 
+                          key={cat} 
+                          onClick={() => { setTimCategory(cat); setSelectedTimItem(null); }}
+                          className={`px-2 py-1 rounded text-xs font-bold ${timCategory === cat ? 'bg-red-600' : 'bg-gray-700'}`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                    
+                    {/* Items in selected category */}
+                    <div className="max-h-40 overflow-y-auto space-y-1">
+                      {timHortonsMenu[timCategory]?.map((item, idx) => (
+                        <button 
+                          key={idx}
+                          onClick={() => {
+                            setSelectedTimItem(item);
+                            setNewMeal({ name: item.name, calories: item.cal });
+                          }}
+                          className={`w-full flex justify-between items-center p-2 rounded-lg text-left ${selectedTimItem?.name === item.name ? 'bg-red-600' : 'bg-gray-700'}`}
+                        >
+                          <span className="text-sm truncate flex-1">{item.name}</span>
+                          <span className="text-orange-400 font-bold ml-2">{item.cal}</span>
+                        </button>
+                      ))}
+                    </div>
+                    
+                    {selectedTimItem && (
+                      <div className="bg-red-900 rounded-lg p-2 text-center">
+                        <div className="font-bold">{selectedTimItem.name}</div>
+                        <div className="text-orange-400 text-xl font-bold">{selectedTimItem.cal} cal</div>
+                      </div>
+                    )}
+                  </>
+                )}
+                
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => { setShowAddMeal(false); setNewMeal({ name: '', calories: 300 }); setSelectedTimItem(null); setFoodSource('custom'); }} className="bg-gray-600 rounded-xl py-3 font-bold">CANCEL</button>
+                  <button onClick={() => { addMeal(); setSelectedTimItem(null); setFoodSource('custom'); }} className="bg-green-600 rounded-xl py-3 font-bold">SAVE</button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-orange-600 rounded-xl p-3 text-center">
+                <div className="text-2xl font-bold">{totalCal}</div>
+                <div className="text-xs">eaten</div>
+              </div>
+              <div className={`${totalCal > calorieGoal ? 'bg-red-600' : 'bg-green-600'} rounded-xl p-3 text-center`}>
+                <div className="text-2xl font-bold">{calorieGoal - totalCal}</div>
+                <div className="text-xs">{totalCal > calorieGoal ? 'over' : 'left'}</div>
+              </div>
+            </div>
+
+            <div className="bg-gray-800 rounded-xl p-2">
+              <div className="h-4 bg-gray-700 rounded-full overflow-hidden">
+                <div className={`h-full ${totalCal > calorieGoal ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${Math.min((totalCal / calorieGoal) * 100, 100)}%` }} />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button onClick={() => setCalorieGoal(Math.max(1000, calorieGoal - 100))} className="bg-gray-700 rounded-xl py-2 px-4 text-lg font-bold">−</button>
+              <div className="flex-1 bg-gray-800 rounded-xl py-2 text-center">
+                <div className="text-xs text-gray-400">Daily Goal</div>
+                <div className="text-lg font-bold">{calorieGoal}</div>
+              </div>
+              <button onClick={() => setCalorieGoal(calorieGoal + 100)} className="bg-gray-700 rounded-xl py-2 px-4 text-lg font-bold">+</button>
+            </div>
+
+            {/* Meals for selected day */}
+            <div className="space-y-1 max-h-36 overflow-y-auto">
+              {meals.filter(m => m.date === selectedDate).length === 0 ? (
+                <div className="text-center text-gray-500 py-4">No meals logged</div>
+              ) : (
+                meals.filter(m => m.date === selectedDate).map(m => (
+                  <div key={m.id} className="flex items-center bg-gray-800 rounded-lg p-2">
+                    <span className="flex-1 truncate">{m.name}</span>
+                    <span className="text-orange-400 font-bold mx-2">{m.calories}</span>
+                    <button onClick={() => setMeals(meals.filter(x => x.id !== m.id))} className="text-red-400 text-xl px-2 bg-transparent">✕</button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* WEIGHT */}
+        {activeTab === 'wgt' && (
+          <div className="space-y-2">
+            {/* Unit Toggle */}
+            <div className="flex justify-center">
+              <div className="bg-gray-800 rounded-lg p-1 flex">
+                <button onClick={() => setWeightUnit('kg')} className={`px-4 py-2 rounded-md font-bold text-sm ${weightUnit === 'kg' ? 'bg-blue-600' : ''}`}>KG</button>
+                <button onClick={() => setWeightUnit('lbs')} className={`px-4 py-2 rounded-md font-bold text-sm ${weightUnit === 'lbs' ? 'bg-blue-600' : ''}`}>LBS</button>
+              </div>
+            </div>
+
+            {!showAddWeight ? (
+              <button onClick={() => { setNewWeight(weightUnit === 'lbs' ? parseFloat(kgToLbs(currentWeight || 70)) : (currentWeight || 70)); setShowAddWeight(true); }} className="w-full bg-blue-600 rounded-xl py-4 text-xl font-bold">+ LOG WEIGHT</button>
+            ) : (
+              <div className="bg-gray-800 rounded-xl p-3 space-y-3">
+                <div className="text-center text-gray-400 text-sm">Weight ({weightUnit})</div>
+                <Stepper value={newWeight} onChange={setNewWeight} min={weightUnit === 'lbs' ? 66 : 30} max={weightUnit === 'lbs' ? 660 : 300} step={weightUnit === 'lbs' ? 1 : 0.5} big={weightUnit === 'lbs' ? 10 : 5} />
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => setShowAddWeight(false)} className="bg-gray-600 rounded-xl py-3 font-bold">CANCEL</button>
+                  <button onClick={() => { 
+                    const today = new Date();
+                    const date = `${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}`;
+                    const weightInKg = weightUnit === 'lbs' ? parseFloat(lbsToKg(newWeight)) : newWeight;
+                    setWeightEntries([...weightEntries, { id: Date.now().toString(), weight: weightInKg, date }]);
+                    setShowAddWeight(false);
+                  }} className="bg-green-600 rounded-xl py-3 font-bold">SAVE</button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-blue-600 rounded-xl p-3 text-center">
+                <div className="text-2xl font-bold">{currentWeight ? displayWeight(currentWeight) : '−'}</div>
+                <div className="text-xs">current ({weightUnit})</div>
+              </div>
+              <div className={`${currentWeight > goalWeight ? 'bg-orange-600' : 'bg-green-600'} rounded-xl p-3 text-center`}>
+                <div className="text-2xl font-bold">{currentWeight ? displayWeight(Math.abs(currentWeight - goalWeight)) : '−'}</div>
+                <div className="text-xs">to goal</div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button onClick={() => setGoalWeight(Math.max(40, goalWeight - 1))} className="bg-gray-700 rounded-xl py-3 px-5 text-xl font-bold">−</button>
+              <div className="flex-1 bg-gray-800 rounded-xl py-2 text-center">
+                <div className="text-xs text-gray-400">Goal</div>
+                <div className="text-lg font-bold">{displayWeight(goalWeight)} {weightUnit}</div>
+              </div>
+              <button onClick={() => setGoalWeight(goalWeight + 1)} className="bg-gray-700 rounded-xl py-3 px-5 text-xl font-bold">+</button>
+            </div>
+
+            <div className="space-y-1 max-h-36 overflow-y-auto">
+              {[...weightEntries].reverse().map(e => (
+                <div key={e.id} className="flex items-center bg-gray-800 rounded-lg p-2">
+                  <span className="text-gray-400 text-sm">{e.date}</span>
+                  <span className="flex-1 text-center font-bold">{displayWeight(e.weight)} {weightUnit}</span>
+                  <button onClick={() => setWeightEntries(weightEntries.filter(x => x.id !== e.id))} className="text-red-400 text-xl px-2 bg-transparent">✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* GYM */}
+        {activeTab === 'gym' && (
+          <div className="space-y-2">
+            {viewingSession ? (
+              <>
+                <button onClick={() => setViewingSession(null)} className="w-full bg-gray-700 rounded-xl py-3 font-bold">← BACK</button>
+                <div className="bg-gray-800 rounded-xl p-2 text-center">
+                  <div className="font-bold">{viewingSession.date} • {viewingSession.time}</div>
+                  <div className="text-gray-400 text-sm">{viewingSession.duration}min</div>
+                </div>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {viewingSession.exercises.map(ex => (
+                    <div key={ex.id} className="bg-gray-800 rounded-xl p-2">
+                      <div className="text-purple-400 font-bold">{ex.name}</div>
+                      {ex.sets.map((s, i) => (
+                        <div key={s.id} className="text-sm text-gray-300">Set {i + 1}: {s.reps} × {displayWeight(s.weight)}{weightUnit}</div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => { setGymSessions(gymSessions.filter(s => s.id !== viewingSession.id)); setViewingSession(null); }} className="w-full bg-red-600 rounded-xl py-3 font-bold">🗑️ DELETE</button>
+              </>
+            ) : !activeWorkout ? (
+              <>
+                <button onClick={startWorkout} className="w-full bg-green-600 rounded-xl py-6 text-2xl font-bold">🏋️ START</button>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-purple-600 rounded-xl p-2 text-center">
+                    <div className="text-2xl font-bold">{gymSessions.length}</div>
+                    <div className="text-xs">workouts</div>
+                  </div>
+                  <div className="bg-orange-600 rounded-xl p-2 text-center">
+                    <div className="text-2xl font-bold">{gymSessions.reduce((s, g) => s + (g.duration || 0), 0)}</div>
+                    <div className="text-xs">minutes</div>
+                  </div>
+                </div>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {gymSessions.map(s => (
+                    <button key={s.id} onClick={() => setViewingSession(s)} className="w-full bg-gray-800 rounded-xl p-3 text-left">
+                      <div className="flex justify-between">
+                        <div>
+                          <div className="font-bold">{s.date}</div>
+                          <div className="text-xs text-gray-400">{s.exercises.length} ex • {s.duration}m</div>
+                        </div>
+                        <span className="text-xl">→</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="bg-green-600 rounded-xl p-3 flex justify-between items-center">
+                  <div>
+                    <div className="font-bold">🏋️ ACTIVE</div>
+                    <div className="text-sm opacity-80">{activeWorkout.time}</div>
+                  </div>
+                  <span className="text-3xl animate-pulse">●</span>
+                </div>
+
+                {showExercisePicker ? (
+                  <div className="bg-gray-800 rounded-xl p-2 space-y-2">
+                    <div className="grid grid-cols-4 gap-1">
+                      {Object.keys(categoryEmojis).map(cat => (
+                        <button key={cat} onClick={() => setFilterCategory(cat)} className={`py-3 rounded-lg text-center ${filterCategory === cat ? 'bg-purple-600' : 'bg-gray-700'}`}>
+                          <div className="text-xl">{categoryEmojis[cat]}</div>
+                          <div className="text-xs">{cat}</div>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto">
+                      {exerciseDatabase[filterCategory]?.map(ex => (
+                        <button key={ex} onClick={() => addExercise(ex)} className="bg-gray-700 rounded-lg py-3 text-sm font-bold active:bg-purple-600">{ex}</button>
+                      ))}
+                    </div>
+                    <button onClick={() => setShowExercisePicker(false)} className="w-full bg-gray-600 rounded-xl py-3 font-bold">CANCEL</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setShowExercisePicker(true)} className="w-full bg-purple-600 rounded-xl py-4 text-lg font-bold">+ EXERCISE</button>
+                )}
+
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {activeWorkout.exercises.map(ex => (
+                    <div key={ex.id} className="bg-gray-800 rounded-xl p-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-purple-400 font-bold">{ex.name}</span>
+                        <button onClick={() => removeExercise(ex.id)} className="text-red-400 px-2 bg-transparent">🗑️</button>
+                      </div>
+                      
+                      {ex.sets.map((s, i) => (
+                        <div key={s.id} className="flex justify-between bg-gray-700 rounded-lg px-2 py-1 mb-1">
+                          <span className="text-gray-400">#{i + 1}</span>
+                          <span className="font-bold">{s.reps} × {displayWeight(s.weight)}{weightUnit}</span>
+                          <button onClick={() => removeSet(ex.id, s.id)} className="text-red-400 bg-transparent">✕</button>
+                        </div>
+                      ))}
+
+                      {showAddSet === ex.id ? (
+                        <div className="space-y-2 mt-2">
+                          <div className="text-center text-xs text-gray-400">REPS</div>
+                          <Stepper value={newSet.reps} onChange={(v) => setNewSet({ ...newSet, reps: v })} min={1} max={100} step={1} big={5} />
+                          <div className="text-center text-xs text-gray-400">
+                            WEIGHT ({weightUnit}) {isBarbell(ex.name) && <span className="text-purple-400">• plates</span>}
+                          </div>
+                          <Stepper 
+                            value={newSet.weight} 
+                            onChange={(v) => setNewSet({ ...newSet, weight: v })} 
+                            min={0} 
+                            max={weightUnit === 'lbs' ? 1100 : 500} 
+                            step={weightUnit === 'lbs' ? 5 : 2.5}
+                            big={weightUnit === 'lbs' ? 10 : 5}
+                            plates={isBarbell(ex.name) ? getPlates() : null}
+                          />
+                          <div className="grid grid-cols-2 gap-2">
+                            <button onClick={() => setShowAddSet(null)} className="bg-gray-600 rounded-lg py-3 font-bold">CANCEL</button>
+                            <button onClick={() => addSetToExercise(ex.id)} className="bg-green-600 rounded-lg py-3 font-bold">ADD</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-1 mt-1">
+                          <button onClick={() => { 
+                            const lastWeight = ex.sets.length > 0 ? ex.sets[ex.sets.length - 1].weight : (isBarbell(ex.name) ? 20 : 20);
+                            const displayW = weightUnit === 'lbs' ? parseFloat(kgToLbs(lastWeight)) : lastWeight;
+                            const defaultWeight = isBarbell(ex.name) 
+                              ? (weightUnit === 'lbs' ? 45 : 20)  // Bar weight as default
+                              : (weightUnit === 'lbs' ? 20 : 10);
+                            setNewSet(ex.sets.length > 0 ? { reps: ex.sets[ex.sets.length - 1].reps, weight: displayW } : { reps: 10, weight: defaultWeight }); 
+                            setShowAddSet(ex.id); 
+                          }} className="bg-blue-600 rounded-lg py-2 font-bold">+ SET</button>
+                          {ex.sets.length > 0 && (
+                            <button onClick={() => quickRepeat(ex.id, ex.sets[ex.sets.length - 1])} className="bg-green-600 rounded-lg py-2 font-bold">↺ SAME</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => setActiveWorkout(null)} className="bg-gray-600 rounded-xl py-4 font-bold">CANCEL</button>
+                  <button onClick={endWorkout} className="bg-red-600 rounded-xl py-4 font-bold">✓ DONE</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* SETTINGS */}
+        {activeTab === 'set' && (
+          <div className="space-y-3">
+            <div className="text-center text-gray-400 text-sm">Data Backup</div>
+            
+            {/* Export */}
+            <button 
+              onClick={() => {
+                const data = {
+                  meals,
+                  calorieGoal,
+                  weightEntries,
+                  goalWeight,
+                  weightUnit,
+                  gymSessions,
+                  exportDate: new Date().toISOString()
+                };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `fitness-data-${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="w-full bg-blue-600 rounded-xl py-4 text-lg font-bold"
+            >
+              📤 Export Data (JSON)
+            </button>
+            
+            {/* Import */}
+            <label className="w-full bg-green-600 rounded-xl py-4 text-lg font-bold text-center block cursor-pointer">
+              📥 Import Data (JSON)
+              <input 
+                type="file" 
+                accept=".json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      try {
+                        const data = JSON.parse(ev.target.result);
+                        if (data.meals) setMeals(data.meals);
+                        if (data.calorieGoal) setCalorieGoal(data.calorieGoal);
+                        if (data.weightEntries) setWeightEntries(data.weightEntries);
+                        if (data.goalWeight) setGoalWeight(data.goalWeight);
+                        if (data.weightUnit) setWeightUnit(data.weightUnit);
+                        if (data.gymSessions) setGymSessions(data.gymSessions);
+                        alert('Data imported successfully!');
+                      } catch (err) {
+                        alert('Error importing data: ' + err.message);
+                      }
+                    };
+                    reader.readAsText(file);
+                  }
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            
+            {/* Clear Data */}
+            <button 
+              onClick={() => {
+                if (confirm('Are you sure you want to delete ALL data? This cannot be undone!')) {
+                  setMeals([]);
+                  setWeightEntries([]);
+                  setGymSessions([]);
+                  setActiveWorkout(null);
+                  localStorage.clear();
+                  alert('All data cleared!');
+                }
+              }}
+              className="w-full bg-red-600 rounded-xl py-4 text-lg font-bold"
+            >
+              🗑️ Clear All Data
+            </button>
+            
+            <div className="bg-gray-800 rounded-xl p-3 space-y-2">
+              <div className="text-gray-400 text-sm text-center">Data Summary</div>
+              <div className="grid grid-cols-2 gap-2 text-center">
+                <div className="bg-gray-700 rounded-lg p-2">
+                  <div className="text-xl font-bold text-orange-400">{meals.length}</div>
+                  <div className="text-xs text-gray-400">meals logged</div>
+                </div>
+                <div className="bg-gray-700 rounded-lg p-2">
+                  <div className="text-xl font-bold text-blue-400">{weightEntries.length}</div>
+                  <div className="text-xs text-gray-400">weight entries</div>
+                </div>
+                <div className="bg-gray-700 rounded-lg p-2">
+                  <div className="text-xl font-bold text-purple-400">{gymSessions.length}</div>
+                  <div className="text-xs text-gray-400">workouts</div>
+                </div>
+                <div className="bg-gray-700 rounded-lg p-2">
+                  <div className="text-xl font-bold text-green-400">{gymSessions.reduce((s, g) => s + g.exercises.reduce((es, ex) => es + ex.sets.length, 0), 0)}</div>
+                  <div className="text-xs text-gray-400">total sets</div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-gray-800 rounded-xl p-3">
+              <div className="text-gray-400 text-sm text-center mb-2">About</div>
+              <div className="text-center text-xs text-gray-500">
+                Fitness Tracker v1.0<br/>
+                Built for Cat S22 Flip<br/>
+                Data stored locally
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+      // Find the component to render
+      const ComponentToRender = typeof __Component__ !== 'undefined'
+        ? __Component__
+        : typeof App !== 'undefined'
+          ? App
+          : typeof Component !== 'undefined'
+            ? Component
+            : null;
+
+      if (ComponentToRender) {
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(
+          React.createElement(ErrorBoundary, null,
+            React.createElement(ComponentToRender)
+          )
+        );
+      } else {
+        document.getElementById('root').innerHTML = '<div class="error-display">No component found to render. Make sure to export default your component.</div>';
+      }
+    } catch (err) {
+      document.getElementById('root').innerHTML = '<div class="error-display">Error: ' + err.message + '</div>';
+    }
+  </script>
+</body>
+</html>
