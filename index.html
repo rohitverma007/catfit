@@ -201,20 +201,19 @@
         syncDate: new Date().toISOString()
       };
 
-      const response = await fetch('https://jsonblob.com/api/jsonBlob', {
+      const response = await fetch('https://api.npoint.io/', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify(data)
+        body: JSON.stringify({ contents: data })
       });
 
       if (!response.ok) throw new Error('Failed to upload data');
 
-      // Get the blob ID from the Location header or URL
-      const blobUrl = response.headers.get('Location') || response.url;
-      const blobId = blobUrl.split('/').pop();
+      // Get the blob ID from the response
+      const result = await response.text();
+      const blobId = result.trim();
 
       // Create shareable URL with sync parameter
       const currentUrl = window.location.href.split('?')[0].split('#')[0];
@@ -266,13 +265,15 @@
 
     if (syncId) {
       setSyncLoading(true);
-      fetch(`https://jsonblob.com/api/jsonBlob/${syncId}`)
+      fetch(`https://api.npoint.io/${syncId}`)
         .then(res => {
           if (!res.ok) throw new Error('Sync data not found');
           return res.json();
         })
         .then(data => {
-          setPendingSyncData(data);
+          // npoint.io wraps data in 'contents' key
+          const syncData = data.contents || data;
+          setPendingSyncData(syncData);
           setShowSyncImport(true);
         })
         .catch(err => {

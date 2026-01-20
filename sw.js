@@ -1,5 +1,5 @@
 // Service Worker for Fitness Tracker PWA
-const CACHE_NAME = 'fitness-tracker-v1';
+const CACHE_NAME = 'fitness-tracker-v2';
 
 // Install event - cache essential files
 self.addEventListener('install', (event) => {
@@ -31,6 +31,13 @@ self.addEventListener('activate', (event) => {
 
 // Fetch event - network first, fallback to cache
 self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+
+  // Skip caching for external API requests and non-http(s) schemes
+  if (url.origin !== self.location.origin || !url.protocol.startsWith('http')) {
+    return; // Let the browser handle these requests normally
+  }
+
   event.respondWith(
     fetch(event.request)
       .then((response) => {
