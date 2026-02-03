@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workout Analytics Dashboard</title>
+
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            slate: {
+              850: '#172033',
+              950: '#0a0f1a'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #0a0f1a 0%, #1a1f2e 50%, #0f172a 100%);
+      min-height: 100vh;
+    }
+
+    /* Smooth scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb { background: rgba(139, 92, 246, 0.5); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(139, 92, 246, 0.7); }
+
+    /* Glass morphism effect */
+    .glass {
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .glass-card {
+      background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* Glow effects */
+    .glow-purple { box-shadow: 0 0 40px rgba(139, 92, 246, 0.15); }
+    .glow-emerald { box-shadow: 0 0 40px rgba(16, 185, 129, 0.15); }
+    .glow-amber { box-shadow: 0 0 40px rgba(245, 158, 11, 0.15); }
+    .glow-rose { box-shadow: 0 0 40px rgba(244, 63, 94, 0.15); }
+    .glow-cyan { box-shadow: 0 0 40px rgba(6, 182, 212, 0.15); }
+
+    /* Drop zone animation */
+    .drop-zone {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .drop-zone.dragover {
+      transform: scale(1.02);
+      border-color: rgba(139, 92, 246, 0.8);
+      background: rgba(139, 92, 246, 0.1);
+    }
+
+    /* Stat card animations */
+    .stat-card {
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
+    }
+    .stat-card:hover {
+      transform: translateY(-4px);
+    }
+
+    /* Chart container */
+    .chart-container {
+      position: relative;
+      height: 280px;
+    }
+
+    /* Pulse animation for loading */
+    @keyframes pulse-slow {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .animate-pulse-slow {
+      animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    /* Exercise badge */
+    .exercise-badge {
+      transition: all 0.2s ease;
+    }
+    .exercise-badge:hover {
+      transform: scale(1.05);
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+    // Utility functions
+    const kgToLbs = (kg) => kg * 2.20462;
+    const formatWeight = (kg, unit = 'kg') => {
+      const val = unit === 'lbs' ? kgToLbs(kg) : kg;
+      return Number(val.toFixed(1));
+    };
+
+    const parseDate = (dateStr) => {
+      if (!dateStr) return null;
+      // Handle various date formats
+      if (dateStr.includes('T')) return new Date(dateStr);
+      if (dateStr.includes('/')) {
+        const parts = dateStr.split('/');
+        if (parts[2]?.length === 4) {
+          // DD/MM/YYYY or MM/DD/YYYY
+          return new Date(parts[2], parts[1] - 1, parts[0]);
+        }
+        // MM/DD format
+        const year = new Date().getFullYear();
+        return new Date(year, parts[0] - 1, parts[1]);
+      }
+      return new Date(dateStr);
+    };
+
+    // Main Dashboard Component
+    function Dashboard() {
+      const [files, setFiles] = useState([]);
+      const [mergedData, setMergedData] = useState(null);
+      const [weightUnit, setWeightUnit] = useState('kg');
+      const [isDragOver, setIsDragOver] = useState(false);
+      const fileInputRef = useRef(null);
+
+      // Merge all imported data
+      useEffect(() => {
+        if (files.length === 0) {
+          setMergedData(null);
+          return;
+        }
+
+        const merged = {
+          meals: [],
+          weightEntries: [],
+          gymSessions: [],
+          calorieGoal: 2000,
+          goalWeight: 70,
+          files: files.length
+        };
+
+        const sessionIds = new Set();
+        const mealIds = new Set();
+        const weightIds = new Set();
+
+        files.forEach(file => {
+          // Set weight unit from most recent file
+          if (file.data.weightUnit) {
+            setWeightUnit(file.data.weightUnit);
+          }
+
+          // Merge gym sessions (dedupe by ID)
+          (file.data.gymSessions || []).forEach(session => {
+            if (!sessionIds.has(session.id)) {
+              sessionIds.add(session.id);
+              merged.gymSessions.push(session);
+            }
+          });
+
+          // Merge meals (dedupe by ID)
+          (file.data.meals || []).forEach(meal => {
+            if (!mealIds.has(meal.id)) {
+              mealIds.add(meal.id);
+              merged.meals.push(meal);
+            }
+          });
+
+          // Merge weight entries (dedupe by ID)
+          (file.data.weightEntries || []).forEach(entry => {
+            if (!weightIds.has(entry.id)) {
+              weightIds.add(entry.id);
+              merged.weightEntries.push(entry);
+            }
+          });
+
+          merged.calorieGoal = file.data.calorieGoal || merged.calorieGoal;
+          merged.goalWeight = file.data.goalWeight || merged.goalWeight;
+        });
+
+        // Sort sessions by date (newest first)
+        merged.gymSessions.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+
+        setMergedData(merged);
+      }, [files]);
+
+      const handleFiles = useCallback((fileList) => {
+        Array.from(fileList).forEach(file => {
+          if (file.type === 'application/json' || file.name.endsWith('.json')) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              try {
+                const data = JSON.parse(e.target.result);
+                setFiles(prev => [...prev, {
+                  name: file.name,
+                  data,
+                  importedAt: new Date().toISOString()
+                }]);
+              } catch (err) {
+                console.error('Error parsing JSON:', err);
+              }
+            };
+            reader.readAsText(file);
+          }
+        });
+      }, []);
+
+      const handleDrop = useCallback((e) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        handleFiles(e.dataTransfer.files);
+      }, [handleFiles]);
+
+      const handleDragOver = useCallback((e) => {
+        e.preventDefault();
+        setIsDragOver(true);
+      }, []);
+
+      const handleDragLeave = useCallback((e) => {
+        e.preventDefault();
+        setIsDragOver(false);
+      }, []);
+
+      const removeFile = (index) => {
+        setFiles(prev => prev.filter((_, i) => i !== index));
+      };
+
+      const clearAll = () => {
+        setFiles([]);
+      };
+
+      // Calculate analytics
+      const analytics = useMemo(() => {
+        if (!mergedData) return null;
+
+        const sessions = mergedData.gymSessions;
+        const totalWorkouts = sessions.length;
+        const totalDuration = sessions.reduce((sum, s) => sum + (s.duration || 0), 0);
+        const totalExercises = sessions.reduce((sum, s) => sum + (s.exercises?.length || 0), 0);
+        const totalSets = sessions.reduce((sum, s) =>
+          sum + (s.exercises?.reduce((es, ex) => es + (ex.sets?.length || 0), 0) || 0), 0);
+
+        // Calculate total volume (reps × weight)
+        let totalVolume = 0;
+        let totalReps = 0;
+        let totalCardioMinutes = 0;
+        let totalCardioCalories = 0;
+
+        // Exercise frequency map
+        const exerciseFrequency = {};
+        const exerciseVolume = {};
+        const exerciseProgress = {};
+
+        sessions.forEach(session => {
+          (session.exercises || []).forEach(exercise => {
+            const name = exercise.name;
+            exerciseFrequency[name] = (exerciseFrequency[name] || 0) + 1;
+
+            (exercise.sets || []).forEach(set => {
+              if (set.isCardio || ['Treadmill', 'Bike', 'Rowing', 'Elliptical', 'Jump Rope'].includes(name)) {
+                totalCardioMinutes += set.duration || 0;
+                totalCardioCalories += set.calories || 0;
+              } else {
+                const weight = set.weight || 0;
+                const reps = set.reps || 0;
+                const volume = weight * reps;
+                totalVolume += volume;
+                totalReps += reps;
+
+                exerciseVolume[name] = (exerciseVolume[name] || 0) + volume;
+
+                // Track progress (weight over time)
+                if (!exerciseProgress[name]) exerciseProgress[name] = [];
+                exerciseProgress[name].push({
+                  date: session.startTime,
+                  weight,
+                  reps
+                });
+              }
+            });
+          });
+        });
+
+        // Get top exercises
+        const topExercises = Object.entries(exerciseFrequency)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10);
+
+        // Volume by exercise (top 8)
+        const volumeByExercise = Object.entries(exerciseVolume)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 8);
+
+        // Workouts per week (last 4 weeks)
+        const now = new Date();
+        const weeklyWorkouts = [0, 0, 0, 0];
+        sessions.forEach(session => {
+          const sessionDate = new Date(session.startTime);
+          const weeksAgo = Math.floor((now - sessionDate) / (7 * 24 * 60 * 60 * 1000));
+          if (weeksAgo >= 0 && weeksAgo < 4) {
+            weeklyWorkouts[weeksAgo]++;
+          }
+        });
+
+        // Daily workout distribution
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const workoutsByDay = [0, 0, 0, 0, 0, 0, 0];
+        sessions.forEach(session => {
+          const day = new Date(session.startTime).getDay();
+          workoutsByDay[day]++;
+        });
+
+        // Muscle group analysis
+        const muscleGroups = {
+          'Chest': ['Bench Press', 'Incline Bench', 'DB Press', 'DB Flyes', 'Cable Cross', 'Push Ups', 'Dips'],
+          'Back': ['Pull Ups', 'Lat Pulldown', 'Seated Row', 'Bent Row', 'Deadlift', 'Face Pulls'],
+          'Shoulders': ['OHP', 'Lateral Raise', 'Front Raise', 'Rear Delts'],
+          'Biceps': ['Barbell Curl', 'DB Curl', 'Hammer Curl', 'Preacher Curl', 'Cable Curl'],
+          'Triceps': ['Pushdown', 'Overhead Ext', 'Skull Crush', 'Close Grip'],
+          'Legs': ['Squat', 'Leg Press', 'Lunges', 'Leg Ext', 'Leg Curl', 'Calf Raise'],
+          'Core': ['Plank', 'Crunches', 'Leg Raises', 'Ab Wheel', 'Cable Crunch'],
+          'Cardio': ['Treadmill', 'Bike', 'Rowing', 'Elliptical', 'Jump Rope']
+        };
+
+        const muscleGroupVolume = {};
+        Object.entries(muscleGroups).forEach(([group, exercises]) => {
+          muscleGroupVolume[group] = exercises.reduce((sum, ex) =>
+            sum + (exerciseVolume[ex] || 0), 0);
+        });
+
+        return {
+          totalWorkouts,
+          totalDuration,
+          totalExercises,
+          totalSets,
+          totalVolume,
+          totalReps,
+          totalCardioMinutes,
+          totalCardioCalories,
+          topExercises,
+          volumeByExercise,
+          weeklyWorkouts,
+          workoutsByDay,
+          dayNames,
+          muscleGroupVolume,
+          exerciseProgress,
+          avgDuration: totalWorkouts > 0 ? Math.round(totalDuration / totalWorkouts) : 0,
+          avgSetsPerWorkout: totalWorkouts > 0 ? Math.round(totalSets / totalWorkouts) : 0
+        };
+      }, [mergedData]);
+
+      return (
+        <div className="min-h-screen text-white">
+          {/* Header */}
+          <header className="glass sticky top-0 z-50">
+            <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <a href="./index.html" className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                  <span className="hidden sm:inline">Back to App</span>
+                </a>
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-indigo-400 bg-clip-text text-transparent">
+                Workout Analytics
+              </h1>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setWeightUnit(u => u === 'kg' ? 'lbs' : 'kg')}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-medium transition-colors"
+                >
+                  {weightUnit.toUpperCase()}
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-7xl mx-auto px-4 py-8 space-y-8">
+            {/* Import Section */}
+            <section className="space-y-4">
+              <div
+                className={`drop-zone glass-card rounded-2xl p-8 border-2 border-dashed cursor-pointer transition-all ${isDragOver ? 'dragover border-purple-500' : 'border-slate-600 hover:border-slate-500'}`}
+                onClick={() => fileInputRef.current?.click()}
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => handleFiles(e.target.files)}
+                />
+                <div className="text-center">
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 flex items-center justify-center">
+                    <svg className="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-semibold text-white mb-2">Import Workout Data</h3>
+                  <p className="text-slate-400 text-sm">Drag & drop JSON files here, or click to browse</p>
+                  <p className="text-slate-500 text-xs mt-2">Supports multiple files - duplicates are automatically merged</p>
+                </div>
+              </div>
+
+              {/* Imported Files List */}
+              {files.length > 0 && (
+                <div className="glass-card rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-medium text-slate-300">{files.length} file{files.length > 1 ? 's' : ''} imported</h4>
+                    <button
+                      onClick={clearAll}
+                      className="text-sm text-rose-400 hover:text-rose-300 transition-colors"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {files.map((file, idx) => (
+                      <div key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800/50 rounded-lg text-sm">
+                        <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-slate-300 truncate max-w-[200px]">{file.name}</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
+                          className="text-slate-500 hover:text-rose-400 transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* Analytics Dashboard */}
+            {analytics && (
+              <>
+                {/* Key Stats Grid */}
+                <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <StatCard
+                    title="Total Workouts"
+                    value={analytics.totalWorkouts}
+                    icon="fire"
+                    gradient="from-orange-500 to-rose-500"
+                    glow="glow-rose"
+                  />
+                  <StatCard
+                    title="Total Duration"
+                    value={`${Math.floor(analytics.totalDuration / 60)}h ${analytics.totalDuration % 60}m`}
+                    icon="clock"
+                    gradient="from-cyan-500 to-blue-500"
+                    glow="glow-cyan"
+                  />
+                  <StatCard
+                    title="Total Sets"
+                    value={analytics.totalSets.toLocaleString()}
+                    icon="layers"
+                    gradient="from-purple-500 to-indigo-500"
+                    glow="glow-purple"
+                  />
+                  <StatCard
+                    title="Total Volume"
+                    value={`${formatWeight(analytics.totalVolume / 1000, weightUnit).toLocaleString()}k`}
+                    subtitle={weightUnit}
+                    icon="trending"
+                    gradient="from-emerald-500 to-teal-500"
+                    glow="glow-emerald"
+                  />
+                </section>
+
+                {/* Secondary Stats */}
+                <section className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <MiniStatCard title="Avg Duration" value={`${analytics.avgDuration}m`} color="text-cyan-400" />
+                  <MiniStatCard title="Avg Sets/Workout" value={analytics.avgSetsPerWorkout} color="text-purple-400" />
+                  <MiniStatCard title="Cardio Minutes" value={analytics.totalCardioMinutes} color="text-rose-400" />
+                  <MiniStatCard title="Cardio Calories" value={analytics.totalCardioCalories.toLocaleString()} color="text-amber-400" />
+                </section>
+
+                {/* Charts Row */}
+                <section className="grid lg:grid-cols-2 gap-6">
+                  <ChartCard title="Weekly Activity" subtitle="Last 4 weeks">
+                    <WeeklyChart data={analytics.weeklyWorkouts} />
+                  </ChartCard>
+                  <ChartCard title="Workout Days" subtitle="Distribution by day">
+                    <DayDistributionChart data={analytics.workoutsByDay} labels={analytics.dayNames} />
+                  </ChartCard>
+                </section>
+
+                {/* Volume Analysis */}
+                <section className="grid lg:grid-cols-2 gap-6">
+                  <ChartCard title="Volume by Exercise" subtitle={`Top 8 exercises (${weightUnit})`}>
+                    <VolumeChart data={analytics.volumeByExercise} unit={weightUnit} />
+                  </ChartCard>
+                  <ChartCard title="Muscle Group Distribution" subtitle="Total volume by muscle group">
+                    <MuscleGroupChart data={analytics.muscleGroupVolume} unit={weightUnit} />
+                  </ChartCard>
+                </section>
+
+                {/* Top Exercises */}
+                <section className="glass-card rounded-2xl p-6 glow-purple">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center text-sm">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
+                    </span>
+                    Most Performed Exercises
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {analytics.topExercises.map(([name, count], idx) => (
+                      <div
+                        key={name}
+                        className={`exercise-badge px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 ${
+                          idx === 0 ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border border-amber-500/30' :
+                          idx === 1 ? 'bg-gradient-to-r from-slate-400/20 to-slate-500/20 text-slate-300 border border-slate-400/30' :
+                          idx === 2 ? 'bg-gradient-to-r from-orange-600/20 to-amber-600/20 text-orange-300 border border-orange-500/30' :
+                          'bg-slate-800/50 text-slate-400 border border-slate-700'
+                        }`}
+                      >
+                        {idx < 3 && <span>{idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉'}</span>}
+                        <span>{name}</span>
+                        <span className="px-2 py-0.5 rounded-md bg-black/20 text-xs">{count}x</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                {/* Recent Workouts */}
+                <section className="glass-card rounded-2xl p-6">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-sm">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </span>
+                    Recent Workouts
+                  </h3>
+                  <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                    {mergedData.gymSessions.slice(0, 10).map(session => (
+                      <WorkoutCard key={session.id} session={session} weightUnit={weightUnit} />
+                    ))}
+                  </div>
+                </section>
+              </>
+            )}
+
+            {/* Empty State */}
+            {!analytics && (
+              <div className="text-center py-20">
+                <div className="w-24 h-24 mx-auto mb-6 rounded-3xl bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center">
+                  <svg className="w-12 h-12 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
+                <h2 className="text-xl font-semibold text-slate-300 mb-2">No Data Yet</h2>
+                <p className="text-slate-500 max-w-md mx-auto">
+                  Import your workout JSON files to see beautiful analytics and track your progress over time.
+                </p>
+              </div>
+            )}
+          </main>
+
+          {/* Footer */}
+          <footer className="text-center py-8 text-slate-500 text-sm">
+            <p>Workout Analytics Dashboard</p>
+          </footer>
+        </div>
+      );
+    }
+
+    // Stat Card Component
+    function StatCard({ title, value, subtitle, icon, gradient, glow }) {
+      const icons = {
+        fire: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />,
+        clock: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />,
+        layers: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />,
+        trending: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+      };
+
+      return (
+        <div className={`stat-card glass-card rounded-2xl p-5 ${glow}`}>
+          <div className="flex items-start justify-between mb-3">
+            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center`}>
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {icons[icon]}
+              </svg>
+            </div>
+          </div>
+          <div className="text-2xl sm:text-3xl font-bold text-white mb-1">{value}</div>
+          <div className="text-sm text-slate-400">{title}</div>
+          {subtitle && <div className="text-xs text-slate-500 mt-1">{subtitle}</div>}
+        </div>
+      );
+    }
+
+    // Mini Stat Card
+    function MiniStatCard({ title, value, color }) {
+      return (
+        <div className="glass-card rounded-xl p-4 text-center">
+          <div className={`text-xl font-bold ${color}`}>{value}</div>
+          <div className="text-xs text-slate-500 mt-1">{title}</div>
+        </div>
+      );
+    }
+
+    // Chart Card Wrapper
+    function ChartCard({ title, subtitle, children }) {
+      return (
+        <div className="glass-card rounded-2xl p-6">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-white">{title}</h3>
+            {subtitle && <p className="text-sm text-slate-400">{subtitle}</p>}
+          </div>
+          <div className="chart-container">
+            {children}
+          </div>
+        </div>
+      );
+    }
+
+    // Weekly Activity Chart
+    function WeeklyChart({ data }) {
+      const canvasRef = useRef(null);
+      const chartRef = useRef(null);
+
+      useEffect(() => {
+        if (chartRef.current) chartRef.current.destroy();
+
+        const ctx = canvasRef.current.getContext('2d');
+        chartRef.current = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: ['This Week', '1 Week Ago', '2 Weeks Ago', '3 Weeks Ago'],
+            datasets: [{
+              data: data,
+              backgroundColor: [
+                'rgba(139, 92, 246, 0.8)',
+                'rgba(139, 92, 246, 0.6)',
+                'rgba(139, 92, 246, 0.4)',
+                'rgba(139, 92, 246, 0.2)'
+              ],
+              borderRadius: 8,
+              borderSkipped: false
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: { color: 'rgba(148, 163, 184, 0.8)', stepSize: 1 },
+                grid: { color: 'rgba(148, 163, 184, 0.1)' }
+              },
+              x: {
+                ticks: { color: 'rgba(148, 163, 184, 0.8)' },
+                grid: { display: false }
+              }
+            }
+          }
+        });
+
+        return () => chartRef.current?.destroy();
+      }, [data]);
+
+      return <canvas ref={canvasRef} />;
+    }
+
+    // Day Distribution Chart
+    function DayDistributionChart({ data, labels }) {
+      const canvasRef = useRef(null);
+      const chartRef = useRef(null);
+
+      useEffect(() => {
+        if (chartRef.current) chartRef.current.destroy();
+
+        const ctx = canvasRef.current.getContext('2d');
+        chartRef.current = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: labels,
+            datasets: [{
+              data: data,
+              backgroundColor: [
+                'rgba(244, 63, 94, 0.8)',
+                'rgba(245, 158, 11, 0.8)',
+                'rgba(16, 185, 129, 0.8)',
+                'rgba(6, 182, 212, 0.8)',
+                'rgba(139, 92, 246, 0.8)',
+                'rgba(236, 72, 153, 0.8)',
+                'rgba(99, 102, 241, 0.8)'
+              ],
+              borderWidth: 0,
+              spacing: 2
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '65%',
+            plugins: {
+              legend: {
+                position: 'right',
+                labels: {
+                  color: 'rgba(148, 163, 184, 0.8)',
+                  padding: 12,
+                  usePointStyle: true,
+                  pointStyle: 'circle'
+                }
+              }
+            }
+          }
+        });
+
+        return () => chartRef.current?.destroy();
+      }, [data, labels]);
+
+      return <canvas ref={canvasRef} />;
+    }
+
+    // Volume Chart
+    function VolumeChart({ data, unit }) {
+      const canvasRef = useRef(null);
+      const chartRef = useRef(null);
+
+      useEffect(() => {
+        if (chartRef.current) chartRef.current.destroy();
+
+        const ctx = canvasRef.current.getContext('2d');
+        const labels = data.map(d => d[0]);
+        const values = data.map(d => unit === 'lbs' ? d[1] * 2.20462 : d[1]);
+
+        chartRef.current = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [{
+              data: values,
+              backgroundColor: 'rgba(16, 185, 129, 0.6)',
+              borderColor: 'rgba(16, 185, 129, 1)',
+              borderWidth: 1,
+              borderRadius: 6
+            }]
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: {
+                ticks: {
+                  color: 'rgba(148, 163, 184, 0.8)',
+                  callback: (v) => v >= 1000 ? `${(v/1000).toFixed(1)}k` : v
+                },
+                grid: { color: 'rgba(148, 163, 184, 0.1)' }
+              },
+              y: {
+                ticks: { color: 'rgba(148, 163, 184, 0.8)' },
+                grid: { display: false }
+              }
+            }
+          }
+        });
+
+        return () => chartRef.current?.destroy();
+      }, [data, unit]);
+
+      return <canvas ref={canvasRef} />;
+    }
+
+    // Muscle Group Chart
+    function MuscleGroupChart({ data, unit }) {
+      const canvasRef = useRef(null);
+      const chartRef = useRef(null);
+
+      useEffect(() => {
+        if (chartRef.current) chartRef.current.destroy();
+
+        const ctx = canvasRef.current.getContext('2d');
+        const labels = Object.keys(data);
+        const values = Object.values(data).map(v => unit === 'lbs' ? v * 2.20462 : v);
+
+        const colors = [
+          'rgba(244, 63, 94, 0.7)',   // Chest - rose
+          'rgba(59, 130, 246, 0.7)',  // Back - blue
+          'rgba(245, 158, 11, 0.7)',  // Shoulders - amber
+          'rgba(139, 92, 246, 0.7)',  // Biceps - purple
+          'rgba(236, 72, 153, 0.7)',  // Triceps - pink
+          'rgba(16, 185, 129, 0.7)',  // Legs - emerald
+          'rgba(6, 182, 212, 0.7)',   // Core - cyan
+          'rgba(99, 102, 241, 0.7)'   // Cardio - indigo
+        ];
+
+        chartRef.current = new Chart(ctx, {
+          type: 'polarArea',
+          data: {
+            labels: labels,
+            datasets: [{
+              data: values,
+              backgroundColor: colors,
+              borderWidth: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: 'right',
+                labels: {
+                  color: 'rgba(148, 163, 184, 0.8)',
+                  padding: 8,
+                  usePointStyle: true,
+                  pointStyle: 'circle',
+                  font: { size: 11 }
+                }
+              }
+            },
+            scales: {
+              r: {
+                ticks: { display: false },
+                grid: { color: 'rgba(148, 163, 184, 0.1)' }
+              }
+            }
+          }
+        });
+
+        return () => chartRef.current?.destroy();
+      }, [data, unit]);
+
+      return <canvas ref={canvasRef} />;
+    }
+
+    // Workout Card
+    function WorkoutCard({ session, weightUnit }) {
+      const [expanded, setExpanded] = useState(false);
+      const date = new Date(session.startTime);
+      const formattedDate = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+      const totalSets = session.exercises?.reduce((sum, ex) => sum + (ex.sets?.length || 0), 0) || 0;
+      const totalVolume = session.exercises?.reduce((sum, ex) =>
+        sum + (ex.sets?.reduce((s, set) => s + ((set.weight || 0) * (set.reps || 0)), 0) || 0), 0) || 0;
+
+      return (
+        <div
+          className="bg-slate-800/30 rounded-xl p-4 cursor-pointer hover:bg-slate-800/50 transition-colors"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-medium text-white">{formattedDate}</div>
+              <div className="text-sm text-slate-400">{session.time} · {session.duration}min</div>
+            </div>
+            <div className="text-right">
+              <div className="text-sm text-purple-400">{session.exercises?.length || 0} exercises</div>
+              <div className="text-xs text-slate-500">{totalSets} sets</div>
+            </div>
+          </div>
+
+          {expanded && (
+            <div className="mt-4 pt-4 border-t border-slate-700/50 space-y-2">
+              {session.exercises?.map(exercise => (
+                <div key={exercise.id} className="flex items-center justify-between text-sm">
+                  <span className="text-slate-300">{exercise.name}</span>
+                  <span className="text-slate-500">
+                    {exercise.sets?.length || 0} sets
+                    {exercise.sets?.[0] && !exercise.sets[0].isCardio && (
+                      <span className="ml-2 text-emerald-400">
+                        {formatWeight(exercise.sets[0].weight, weightUnit)} {weightUnit}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Render
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<Dashboard />);
+  </script>
+</body>
+</html>
