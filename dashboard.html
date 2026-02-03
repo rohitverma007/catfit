@@ -101,6 +101,38 @@
       return 'Other';
     };
 
+    // Week key helper (moved outside component)
+    const getWeekKey = (date) => {
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - d.getDay());
+      return d.toISOString().split('T')[0];
+    };
+
+    // Load from localStorage helper
+    const loadFromLocalStorage = () => {
+      try {
+        const gymSessions = JSON.parse(localStorage.getItem('gymSessions') || '[]');
+        const meals = JSON.parse(localStorage.getItem('meals') || '[]');
+        const weightEntries = JSON.parse(localStorage.getItem('weightEntries') || '[]');
+        const weightUnit = JSON.parse(localStorage.getItem('weightUnit') || '"kg"');
+        const calorieGoal = JSON.parse(localStorage.getItem('calorieGoal') || '2000');
+        const goalWeight = JSON.parse(localStorage.getItem('goalWeight') || '70');
+
+        return {
+          gymSessions,
+          meals,
+          weightEntries,
+          weightUnit,
+          calorieGoal,
+          goalWeight
+        };
+      } catch (e) {
+        console.error('Error loading localStorage:', e);
+        return null;
+      }
+    };
+
     // Main Dashboard Component
     function Dashboard() {
       const [files, setFiles] = useState([]);
@@ -109,12 +141,49 @@
       const [isDragOver, setIsDragOver] = useState(false);
       const [selectedExercise, setSelectedExercise] = useState(null);
       const [activeTab, setActiveTab] = useState('overview');
+      const [useLocalStorage, setUseLocalStorage] = useState(true);
       const fileInputRef = useRef(null);
 
-      // Merge all imported data
+      // Load from localStorage on mount
+      useEffect(() => {
+        const localData = loadFromLocalStorage();
+        if (localData && localData.gymSessions.length > 0) {
+          setWeightUnit(localData.weightUnit || 'kg');
+          setMergedData({
+            gymSessions: localData.gymSessions.sort((a, b) => new Date(a.startTime) - new Date(b.startTime)),
+            meals: localData.meals,
+            weightEntries: localData.weightEntries,
+            calorieGoal: localData.calorieGoal,
+            goalWeight: localData.goalWeight,
+            files: 0,
+            source: 'localStorage'
+          });
+        }
+      }, []);
+
+      // Merge imported files data
       useEffect(() => {
         if (files.length === 0) {
-          setMergedData(null);
+          // If no files, check if we should reload localStorage
+          if (useLocalStorage) {
+            const localData = loadFromLocalStorage();
+            if (localData && localData.gymSessions.length > 0) {
+              setWeightUnit(localData.weightUnit || 'kg');
+              setMergedData({
+                gymSessions: localData.gymSessions.sort((a, b) => new Date(a.startTime) - new Date(b.startTime)),
+                meals: localData.meals,
+                weightEntries: localData.weightEntries,
+                calorieGoal: localData.calorieGoal,
+                goalWeight: localData.goalWeight,
+                files: 0,
+                source: 'localStorage'
+              });
+            } else {
+              setMergedData(null);
+            }
+          } else {
+            setMergedData(null);
+          }
           return;
         }
 
@@ -345,13 +414,6 @@
         };
       }, [mergedData]);
 
-      const getWeekKey = (date) => {
-        const d = new Date(date);
-        d.setHours(0, 0, 0, 0);
-        d.setDate(d.getDate() - d.getDay());
-        return d.toISOString().split('T')[0];
-      };
-
       return (
         <div className="min-h-screen text-white">
           {/* Header */}
@@ -403,12 +465,38 @@
           </header>
 
           <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-            {/* Import Section */}
+            {/* Data Source Section */}
             <section>
+              {/* Data source indicator */}
+              {mergedData?.source === 'localStorage' && files.length === 0 && (
+                <div className="glass-card rounded-xl p-4 mb-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="font-medium text-white">Using Local Data</div>
+                      <div className="text-sm text-slate-400">
+                        {mergedData.gymSessions.length} workouts from this device
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm transition-colors"
+                  >
+                    Import More
+                  </button>
+                </div>
+              )}
+
+              {/* Import zone - compact if we have data */}
               <div
-                className={`drop-zone glass-card rounded-2xl p-6 border-2 border-dashed cursor-pointer transition-all ${
+                className={`drop-zone glass-card rounded-2xl border-2 border-dashed cursor-pointer transition-all ${
                   isDragOver ? 'dragover border-purple-500' : 'border-slate-600 hover:border-slate-500'
-                }`}
+                } ${mergedData ? 'p-4' : 'p-6'}`}
                 onClick={() => fileInputRef.current?.click()}
                 onDrop={handleDrop}
                 onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
@@ -422,27 +510,41 @@
                   className="hidden"
                   onChange={(e) => handleFiles(e.target.files)}
                 />
-                <div className="text-center">
-                  <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 flex items-center justify-center">
-                    <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                  </div>
-                  <h3 className="text-base font-semibold text-white mb-1">Import Workout Data</h3>
-                  <p className="text-slate-400 text-sm">Drop JSON files or click to browse</p>
+                <div className={`text-center ${mergedData ? 'flex items-center justify-center gap-3' : ''}`}>
+                  {!mergedData && (
+                    <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 flex items-center justify-center">
+                      <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                    </div>
+                  )}
+                  {mergedData ? (
+                    <>
+                      <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+                      </svg>
+                      <span className="text-slate-400 text-sm">Drop JSON files to import more data</span>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="text-base font-semibold text-white mb-1">Import Workout Data</h3>
+                      <p className="text-slate-400 text-sm">Drop JSON files or click to browse</p>
+                      <p className="text-slate-500 text-xs mt-2">Or use data saved on this device</p>
+                    </>
+                  )}
                 </div>
               </div>
 
               {files.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2 items-center">
-                  <span className="text-sm text-slate-400">{files.length} file(s):</span>
+                  <span className="text-sm text-slate-400">{files.length} file(s) imported:</span>
                   {files.map((file, idx) => (
                     <span key={idx} className="inline-flex items-center gap-1 px-2 py-1 bg-slate-800/50 rounded text-xs text-slate-300">
                       {file.name}
-                      <button onClick={() => setFiles(prev => prev.filter((_, i) => i !== idx))} className="text-slate-500 hover:text-red-400">×</button>
+                      <button onClick={(e) => { e.stopPropagation(); setFiles(prev => prev.filter((_, i) => i !== idx)); }} className="text-slate-500 hover:text-red-400">×</button>
                     </span>
                   ))}
-                  <button onClick={() => setFiles([])} className="text-xs text-red-400 hover:text-red-300">Clear all</button>
+                  <button onClick={() => { setFiles([]); setUseLocalStorage(true); }} className="text-xs text-red-400 hover:text-red-300">Clear all</button>
                 </div>
               )}
             </section>
