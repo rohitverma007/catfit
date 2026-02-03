@@ -86,6 +86,32 @@
     }
   };
 
+  // Track if initial data load was successful to prevent overwriting on failed loads
+  const [dataHydrated, setDataHydrated] = useState(false);
+  useEffect(() => {
+    // Mark hydration complete after first render
+    setDataHydrated(true);
+  }, []);
+
+  // Safe save function that prevents overwriting existing data with empty data
+  const safeSave = (key, data, isArray = true) => {
+    if (!dataHydrated) return; // Don't save during initial load
+
+    // For arrays, check if we're replacing non-empty with empty
+    if (isArray) {
+      const existing = localStorage.getItem(key);
+      const isEmpty = Array.isArray(data) && data.length === 0;
+      const hasExistingData = existing && existing !== '[]';
+
+      if (isEmpty && hasExistingData) {
+        console.warn(`Prevented overwriting ${key} with empty array`);
+        return;
+      }
+    }
+
+    localStorage.setItem(key, JSON.stringify(data));
+  };
+
   // States
   const [meals, setMeals] = useState(() => {
     const loaded = loadData('meals', []);
@@ -196,15 +222,15 @@
     triceps: '🦾', legs: '🦵', core: '🧘', cardio: '❤️'
   };
 
-  // Save effects
-  useEffect(() => { localStorage.setItem('meals', JSON.stringify(meals)); }, [meals]);
-  useEffect(() => { localStorage.setItem('calorieGoal', JSON.stringify(calorieGoal)); }, [calorieGoal]);
-  useEffect(() => { localStorage.setItem('weightEntries', JSON.stringify(weightEntries)); }, [weightEntries]);
-  useEffect(() => { localStorage.setItem('goalWeight', JSON.stringify(goalWeight)); }, [goalWeight]);
-  useEffect(() => { localStorage.setItem('weightUnit', JSON.stringify(weightUnit)); }, [weightUnit]);
-  useEffect(() => { localStorage.setItem('gymSessions', JSON.stringify(gymSessions)); }, [gymSessions]);
-  useEffect(() => { localStorage.setItem('activeWorkout', JSON.stringify(activeWorkout)); }, [activeWorkout]);
-  useEffect(() => { localStorage.setItem('triSessions', JSON.stringify(triSessions)); }, [triSessions]);
+  // Save effects - using safeSave to prevent data loss during failed loads
+  useEffect(() => { safeSave('meals', meals, true); }, [meals, dataHydrated]);
+  useEffect(() => { safeSave('calorieGoal', calorieGoal, false); }, [calorieGoal, dataHydrated]);
+  useEffect(() => { safeSave('weightEntries', weightEntries, true); }, [weightEntries, dataHydrated]);
+  useEffect(() => { safeSave('goalWeight', goalWeight, false); }, [goalWeight, dataHydrated]);
+  useEffect(() => { safeSave('weightUnit', weightUnit, false); }, [weightUnit, dataHydrated]);
+  useEffect(() => { safeSave('gymSessions', gymSessions, true); }, [gymSessions, dataHydrated]);
+  useEffect(() => { safeSave('activeWorkout', activeWorkout, false); }, [activeWorkout, dataHydrated]);
+  useEffect(() => { safeSave('triSessions', triSessions, true); }, [triSessions, dataHydrated]);
 
   const totalCal = meals.filter(m => m.date === selectedDate).reduce((sum, m) => sum + m.calories, 0);
   const currentWeight = weightEntries.length > 0 ? weightEntries[weightEntries.length - 1].weight : 0;
