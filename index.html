@@ -124,36 +124,26 @@
   // PWA Install States
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
-  const [showManualInstall, setShowManualInstall] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
 
   // Check if already installed (running as standalone)
   useEffect(() => {
-    const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches 
-      || window.navigator.standalone 
+    const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches
+      || window.navigator.standalone
       || document.referrer.includes('android-app://');
     setIsStandalone(isInStandaloneMode);
-    
-    // On Cat S22 / Android Go - show manual install banner immediately if not dismissed
-    const dismissed = localStorage.getItem('installDismissed');
-    if (!isInStandaloneMode && !dismissed) {
-      // Show manual instructions right away (don't wait for beforeinstallprompt)
-      setShowManualInstall(true);
-    }
   }, []);
 
-  // PWA Install - Listen for beforeinstallprompt (might not fire on Cat S22)
+  // PWA Install - Listen for beforeinstallprompt
   useEffect(() => {
     if (isStandalone) return;
-    
+
     const handler = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      // If native prompt is available, use it instead of manual
-      setShowManualInstall(false);
       setShowInstallPrompt(true);
     };
-    
+
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, [isStandalone]);
@@ -164,16 +154,11 @@
       const { outcome } = await deferredPrompt.userChoice;
       setDeferredPrompt(null);
       setShowInstallPrompt(false);
-      if (outcome === 'accepted') {
-        localStorage.setItem('installDismissed', 'true');
-      }
     }
   };
 
   const dismissInstall = () => {
     setShowInstallPrompt(false);
-    setShowManualInstall(false);
-    localStorage.setItem('installDismissed', 'true');
   };
 
   const exerciseDatabase = {
@@ -527,21 +512,6 @@
           <div className="flex gap-2">
             <button onClick={dismissInstall} className="bg-gray-800 rounded px-3 py-1 text-sm">Later</button>
             <button onClick={installApp} className="bg-white text-purple-600 rounded px-3 py-1 text-sm font-bold">Install</button>
-          </div>
-        </div>
-      )}
-      
-      {/* Manual Install Instructions - Shows immediately on Cat S22 */}
-      {showManualInstall && !showInstallPrompt && !isStandalone && (
-        <div className="bg-purple-600 p-3">
-          <div className="flex justify-between items-center mb-2">
-            <span className="font-bold">📲 Add to Home Screen</span>
-            <button onClick={dismissInstall} className="bg-gray-800 rounded-full w-7 h-7 text-lg">×</button>
-          </div>
-          <div className="bg-purple-700 rounded-lg p-2 text-sm space-y-1">
-            <p><strong>1.</strong> Tap <strong>⋮</strong> (top right)</p>
-            <p><strong>2.</strong> Tap "Add to Home screen"</p>
-            <p><strong>3.</strong> Tap "Add"</p>
           </div>
         </div>
       )}
@@ -972,7 +942,10 @@
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `fitness-data-${new Date().toISOString().split('T')[0]}.json`;
+                const now = new Date();
+                const dateStr = now.toISOString().split('T')[0];
+                const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+                a.download = `fitness-data-${dateStr}_${timeStr}.json`;
                 a.click();
                 URL.revokeObjectURL(url);
               }}
@@ -1052,6 +1025,14 @@
               </div>
             </div>
             
+            {/* Dashboard Link */}
+            <a
+              href="./dashboard.html"
+              className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl py-4 text-lg font-bold text-center block"
+            >
+              📊 Open Analytics Dashboard
+            </a>
+
             <div className="bg-gray-800 rounded-xl p-3">
               <div className="text-gray-400 text-sm text-center mb-2">About</div>
               <div className="text-center text-xs text-gray-500">

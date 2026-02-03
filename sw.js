@@ -1,5 +1,5 @@
 // Service Worker for Fitness Tracker PWA
-const CACHE_NAME = 'fitness-tracker-v2';
+const CACHE_NAME = 'fitness-tracker-v3';
 
 // Install event - cache essential files
 self.addEventListener('install', (event) => {
@@ -7,7 +7,8 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll([
         './',
-        './index.html'
+        './index.html',
+        './dashboard.html'
       ]);
     })
   );

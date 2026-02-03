@@ -1,0 +1,1247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workout Analytics Dashboard</title>
+
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #0a0f1a 0%, #1a1f2e 50%, #0f172a 100%);
+      min-height: 100vh;
+    }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb { background: rgba(139, 92, 246, 0.5); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(139, 92, 246, 0.7); }
+
+    .glass {
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .glass-card {
+      background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .drop-zone { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    .drop-zone.dragover {
+      transform: scale(1.02);
+      border-color: rgba(139, 92, 246, 0.8);
+      background: rgba(139, 92, 246, 0.1);
+    }
+
+    .stat-card { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease; }
+    .stat-card:hover { transform: translateY(-4px); }
+
+    .pr-badge {
+      animation: glow 2s ease-in-out infinite alternate;
+    }
+    @keyframes glow {
+      from { box-shadow: 0 0 5px rgba(251, 191, 36, 0.5); }
+      to { box-shadow: 0 0 20px rgba(251, 191, 36, 0.8); }
+    }
+
+    .progress-up { color: #10b981; }
+    .progress-down { color: #ef4444; }
+    .progress-same { color: #6b7280; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+    // Utility functions
+    const kgToLbs = (kg) => kg * 2.20462;
+    const lbsToKg = (lbs) => lbs / 2.20462;
+    const formatWeight = (kg, unit = 'kg') => {
+      if (!kg || kg === 0) return '0';
+      const val = unit === 'lbs' ? kgToLbs(kg) : kg;
+      return Number(val.toFixed(1));
+    };
+
+    // Epley formula for estimated 1RM
+    const calculate1RM = (weight, reps) => {
+      if (reps === 1) return weight;
+      if (reps > 12) return weight * (1 + reps / 30); // Less accurate for high reps
+      return weight * (1 + reps / 30);
+    };
+
+    // Muscle group mapping
+    const muscleGroups = {
+      'Chest': ['Bench Press', 'Incline Bench', 'DB Press', 'DB Flyes', 'Cable Cross', 'Push Ups', 'Dips'],
+      'Back': ['Pull Ups', 'Lat Pulldown', 'Seated Row', 'Bent Row', 'Deadlift', 'Face Pulls'],
+      'Shoulders': ['OHP', 'Lateral Raise', 'Front Raise', 'Rear Delts'],
+      'Biceps': ['Barbell Curl', 'DB Curl', 'Hammer Curl', 'Preacher Curl', 'Cable Curl'],
+      'Triceps': ['Pushdown', 'Overhead Ext', 'Skull Crush', 'Close Grip'],
+      'Legs': ['Squat', 'Leg Press', 'Lunges', 'Leg Ext', 'Leg Curl', 'Calf Raise'],
+      'Core': ['Plank', 'Crunches', 'Leg Raises', 'Ab Wheel', 'Cable Crunch'],
+      'Cardio': ['Treadmill', 'Bike', 'Rowing', 'Elliptical', 'Jump Rope']
+    };
+
+    const getMuscleGroup = (exerciseName) => {
+      for (const [group, exercises] of Object.entries(muscleGroups)) {
+        if (exercises.includes(exerciseName)) return group;
+      }
+      return 'Other';
+    };
+
+    // Week key helper (moved outside component)
+    const getWeekKey = (date) => {
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - d.getDay());
+      return d.toISOString().split('T')[0];
+    };
+
+    // Load from localStorage helper
+    const loadFromLocalStorage = () => {
+      try {
+        const gymSessions = JSON.parse(localStorage.getItem('gymSessions') || '[]');
+        const meals = JSON.parse(localStorage.getItem('meals') || '[]');
+        const weightEntries = JSON.parse(localStorage.getItem('weightEntries') || '[]');
+        const weightUnit = JSON.parse(localStorage.getItem('weightUnit') || '"kg"');
+        const calorieGoal = JSON.parse(localStorage.getItem('calorieGoal') || '2000');
+        const goalWeight = JSON.parse(localStorage.getItem('goalWeight') || '70');
+
+        return {
+          gymSessions,
+          meals,
+          weightEntries,
+          weightUnit,
+          calorieGoal,
+          goalWeight
+        };
+      } catch (e) {
+        console.error('Error loading localStorage:', e);
+        return null;
+      }
+    };
+
+    // Main Dashboard Component
+    function Dashboard() {
+      const [files, setFiles] = useState([]);
+      const [mergedData, setMergedData] = useState(null);
+      const [weightUnit, setWeightUnit] = useState('kg');
+      const [isDragOver, setIsDragOver] = useState(false);
+      const [selectedExercise, setSelectedExercise] = useState(null);
+      const [activeTab, setActiveTab] = useState('overview');
+      const [useLocalStorage, setUseLocalStorage] = useState(true);
+      const fileInputRef = useRef(null);
+
+      // Load from localStorage on mount
+      useEffect(() => {
+        const localData = loadFromLocalStorage();
+        if (localData && localData.gymSessions.length > 0) {
+          setWeightUnit(localData.weightUnit || 'kg');
+          setMergedData({
+            gymSessions: localData.gymSessions.sort((a, b) => new Date(a.startTime) - new Date(b.startTime)),
+            meals: localData.meals,
+            weightEntries: localData.weightEntries,
+            calorieGoal: localData.calorieGoal,
+            goalWeight: localData.goalWeight,
+            files: 0,
+            source: 'localStorage'
+          });
+        }
+      }, []);
+
+      // Merge imported files data
+      useEffect(() => {
+        if (files.length === 0) {
+          // If no files, check if we should reload localStorage
+          if (useLocalStorage) {
+            const localData = loadFromLocalStorage();
+            if (localData && localData.gymSessions.length > 0) {
+              setWeightUnit(localData.weightUnit || 'kg');
+              setMergedData({
+                gymSessions: localData.gymSessions.sort((a, b) => new Date(a.startTime) - new Date(b.startTime)),
+                meals: localData.meals,
+                weightEntries: localData.weightEntries,
+                calorieGoal: localData.calorieGoal,
+                goalWeight: localData.goalWeight,
+                files: 0,
+                source: 'localStorage'
+              });
+            } else {
+              setMergedData(null);
+            }
+          } else {
+            setMergedData(null);
+          }
+          return;
+        }
+
+        const merged = {
+          meals: [],
+          weightEntries: [],
+          gymSessions: [],
+          calorieGoal: 2000,
+          goalWeight: 70,
+          files: files.length
+        };
+
+        const sessionIds = new Set();
+        const mealIds = new Set();
+        const weightIds = new Set();
+
+        files.forEach(file => {
+          if (file.data.weightUnit) setWeightUnit(file.data.weightUnit);
+
+          (file.data.gymSessions || []).forEach(session => {
+            if (!sessionIds.has(session.id)) {
+              sessionIds.add(session.id);
+              merged.gymSessions.push(session);
+            }
+          });
+
+          (file.data.meals || []).forEach(meal => {
+            if (!mealIds.has(meal.id)) {
+              mealIds.add(meal.id);
+              merged.meals.push(meal);
+            }
+          });
+
+          (file.data.weightEntries || []).forEach(entry => {
+            if (!weightIds.has(entry.id)) {
+              weightIds.add(entry.id);
+              merged.weightEntries.push(entry);
+            }
+          });
+
+          merged.calorieGoal = file.data.calorieGoal || merged.calorieGoal;
+          merged.goalWeight = file.data.goalWeight || merged.goalWeight;
+        });
+
+        merged.gymSessions.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+        setMergedData(merged);
+      }, [files]);
+
+      const handleFiles = useCallback((fileList) => {
+        Array.from(fileList).forEach(file => {
+          if (file.type === 'application/json' || file.name.endsWith('.json')) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              try {
+                const data = JSON.parse(e.target.result);
+                setFiles(prev => [...prev, { name: file.name, data, importedAt: new Date().toISOString() }]);
+              } catch (err) {
+                console.error('Error parsing JSON:', err);
+              }
+            };
+            reader.readAsText(file);
+          }
+        });
+      }, []);
+
+      const handleDrop = useCallback((e) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        handleFiles(e.dataTransfer.files);
+      }, [handleFiles]);
+
+      // Calculate comprehensive analytics
+      const analytics = useMemo(() => {
+        if (!mergedData || mergedData.gymSessions.length === 0) return null;
+
+        const sessions = mergedData.gymSessions;
+
+        // Exercise data collection
+        const exerciseData = {};
+        const personalRecords = {};
+        const muscleGroupLastTrained = {};
+        const weeklyVolume = {};
+
+        sessions.forEach(session => {
+          const sessionDate = new Date(session.startTime);
+          const weekKey = getWeekKey(sessionDate);
+
+          (session.exercises || []).forEach(exercise => {
+            const name = exercise.name;
+            const muscleGroup = getMuscleGroup(name);
+            const isCardio = ['Treadmill', 'Bike', 'Rowing', 'Elliptical', 'Jump Rope'].includes(name);
+
+            // Track last trained date for muscle group
+            if (!muscleGroupLastTrained[muscleGroup] || sessionDate > muscleGroupLastTrained[muscleGroup]) {
+              muscleGroupLastTrained[muscleGroup] = sessionDate;
+            }
+
+            if (!exerciseData[name]) {
+              exerciseData[name] = {
+                name,
+                muscleGroup,
+                isCardio,
+                sessions: [],
+                totalSets: 0,
+                totalReps: 0,
+                totalVolume: 0
+              };
+            }
+
+            // Track each session's data for this exercise
+            const sessionSets = [];
+            let sessionVolume = 0;
+            let sessionBestWeight = 0;
+            let sessionBestSet = null;
+
+            (exercise.sets || []).forEach(set => {
+              if (isCardio || set.isCardio) {
+                sessionSets.push({
+                  duration: set.duration || 0,
+                  calories: set.calories || 0,
+                  isCardio: true
+                });
+              } else {
+                const weight = set.weight || 0;
+                const reps = set.reps || 0;
+                const volume = weight * reps;
+                const estimated1RM = calculate1RM(weight, reps);
+
+                sessionSets.push({ weight, reps, volume, estimated1RM });
+                sessionVolume += volume;
+                exerciseData[name].totalSets++;
+                exerciseData[name].totalReps += reps;
+                exerciseData[name].totalVolume += volume;
+
+                // Track personal record (best estimated 1RM)
+                if (!personalRecords[name] || estimated1RM > personalRecords[name].estimated1RM) {
+                  personalRecords[name] = {
+                    weight,
+                    reps,
+                    estimated1RM,
+                    date: sessionDate,
+                    sessionId: session.id
+                  };
+                }
+
+                if (weight > sessionBestWeight) {
+                  sessionBestWeight = weight;
+                  sessionBestSet = { weight, reps, estimated1RM };
+                }
+              }
+            });
+
+            if (sessionSets.length > 0) {
+              exerciseData[name].sessions.push({
+                date: sessionDate,
+                sets: sessionSets,
+                volume: sessionVolume,
+                bestWeight: sessionBestWeight,
+                bestSet: sessionBestSet
+              });
+            }
+
+            // Weekly volume tracking
+            if (!weeklyVolume[weekKey]) weeklyVolume[weekKey] = {};
+            if (!weeklyVolume[weekKey][muscleGroup]) weeklyVolume[weekKey][muscleGroup] = 0;
+            weeklyVolume[weekKey][muscleGroup] += sessionVolume;
+          });
+        });
+
+        // Calculate progress for each exercise
+        Object.values(exerciseData).forEach(ex => {
+          if (ex.sessions.length >= 2 && !ex.isCardio) {
+            const recent = ex.sessions.slice(-3);
+            const older = ex.sessions.slice(0, Math.max(1, ex.sessions.length - 3));
+
+            const recentAvgWeight = recent.reduce((sum, s) => sum + (s.bestWeight || 0), 0) / recent.length;
+            const olderAvgWeight = older.reduce((sum, s) => sum + (s.bestWeight || 0), 0) / older.length;
+
+            ex.weightProgress = recentAvgWeight - olderAvgWeight;
+            ex.weightProgressPercent = olderAvgWeight > 0 ? ((recentAvgWeight - olderAvgWeight) / olderAvgWeight) * 100 : 0;
+          }
+        });
+
+        // Workout consistency
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
+        const recentSessions = sessions.filter(s => new Date(s.startTime) > thirtyDaysAgo);
+        const workoutsPerWeek = (recentSessions.length / 4.3).toFixed(1);
+
+        // Calculate streak
+        let currentStreak = 0;
+        const sortedSessions = [...sessions].sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+        if (sortedSessions.length > 0) {
+          const daysSinceLastWorkout = Math.floor((now - new Date(sortedSessions[0].startTime)) / (24 * 60 * 60 * 1000));
+          if (daysSinceLastWorkout <= 3) {
+            // Count consecutive weeks with workouts
+            const weekSets = new Set();
+            sortedSessions.forEach(s => weekSets.add(getWeekKey(new Date(s.startTime))));
+            currentStreak = weekSets.size;
+          }
+        }
+
+        // Total stats
+        const totalWorkouts = sessions.length;
+        const totalDuration = sessions.reduce((sum, s) => sum + (s.duration || 0), 0);
+        const totalSets = Object.values(exerciseData).reduce((sum, ex) => sum + ex.totalSets, 0);
+        const totalVolume = Object.values(exerciseData).reduce((sum, ex) => sum + ex.totalVolume, 0);
+
+        // Days since last workout for each muscle group
+        const muscleRecovery = {};
+        Object.entries(muscleGroupLastTrained).forEach(([group, date]) => {
+          muscleRecovery[group] = Math.floor((now - date) / (24 * 60 * 60 * 1000));
+        });
+
+        return {
+          exerciseData,
+          personalRecords,
+          muscleRecovery,
+          weeklyVolume,
+          totalWorkouts,
+          totalDuration,
+          totalSets,
+          totalVolume,
+          workoutsPerWeek,
+          currentStreak,
+          recentSessions: sortedSessions.slice(0, 10),
+          exerciseList: Object.keys(exerciseData).filter(name => !exerciseData[name].isCardio).sort()
+        };
+      }, [mergedData]);
+
+      return (
+        <div className="min-h-screen text-white">
+          {/* Header */}
+          <header className="glass sticky top-0 z-50">
+            <div className="max-w-7xl mx-auto px-4 py-4">
+              <div className="flex items-center justify-between mb-3">
+                <a href="./index.html" className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                  <span className="hidden sm:inline">Back</span>
+                </a>
+                <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-indigo-400 bg-clip-text text-transparent">
+                  Training Analytics
+                </h1>
+                <button
+                  onClick={() => setWeightUnit(u => u === 'kg' ? 'lbs' : 'kg')}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-medium transition-colors"
+                >
+                  {weightUnit.toUpperCase()}
+                </button>
+              </div>
+
+              {/* Tabs */}
+              {analytics && (
+                <div className="flex gap-1 overflow-x-auto pb-1">
+                  {[
+                    { id: 'overview', label: 'Overview', icon: '📊' },
+                    { id: 'progress', label: 'Progress', icon: '📈' },
+                    { id: 'exercises', label: 'Exercises', icon: '🏋️' },
+                    { id: 'recovery', label: 'Recovery', icon: '💪' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                        activeTab === tab.id
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-slate-800/50 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <span className="mr-1">{tab.icon}</span>
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </header>
+
+          <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+            {/* Data Source Section */}
+            <section>
+              {/* Data source indicator */}
+              {mergedData?.source === 'localStorage' && files.length === 0 && (
+                <div className="glass-card rounded-xl p-4 mb-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="font-medium text-white">Using Local Data</div>
+                      <div className="text-sm text-slate-400">
+                        {mergedData.gymSessions.length} workouts from this device
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm transition-colors"
+                  >
+                    Import More
+                  </button>
+                </div>
+              )}
+
+              {/* Import zone - compact if we have data */}
+              <div
+                className={`drop-zone glass-card rounded-2xl border-2 border-dashed cursor-pointer transition-all ${
+                  isDragOver ? 'dragover border-purple-500' : 'border-slate-600 hover:border-slate-500'
+                } ${mergedData ? 'p-4' : 'p-6'}`}
+                onClick={() => fileInputRef.current?.click()}
+                onDrop={handleDrop}
+                onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                onDragLeave={(e) => { e.preventDefault(); setIsDragOver(false); }}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => handleFiles(e.target.files)}
+                />
+                <div className={`text-center ${mergedData ? 'flex items-center justify-center gap-3' : ''}`}>
+                  {!mergedData && (
+                    <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 flex items-center justify-center">
+                      <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                    </div>
+                  )}
+                  {mergedData ? (
+                    <>
+                      <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+                      </svg>
+                      <span className="text-slate-400 text-sm">Drop JSON files to import more data</span>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="text-base font-semibold text-white mb-1">Import Workout Data</h3>
+                      <p className="text-slate-400 text-sm">Drop JSON files or click to browse</p>
+                      <p className="text-slate-500 text-xs mt-2">Or use data saved on this device</p>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {files.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2 items-center">
+                  <span className="text-sm text-slate-400">{files.length} file(s) imported:</span>
+                  {files.map((file, idx) => (
+                    <span key={idx} className="inline-flex items-center gap-1 px-2 py-1 bg-slate-800/50 rounded text-xs text-slate-300">
+                      {file.name}
+                      <button onClick={(e) => { e.stopPropagation(); setFiles(prev => prev.filter((_, i) => i !== idx)); }} className="text-slate-500 hover:text-red-400">×</button>
+                    </span>
+                  ))}
+                  <button onClick={() => { setFiles([]); setUseLocalStorage(true); }} className="text-xs text-red-400 hover:text-red-300">Clear all</button>
+                </div>
+              )}
+            </section>
+
+            {/* Analytics Content */}
+            {analytics && (
+              <>
+                {/* Overview Tab */}
+                {activeTab === 'overview' && (
+                  <div className="space-y-6">
+                    {/* Key Stats */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      <StatCard
+                        title="Workouts"
+                        value={analytics.totalWorkouts}
+                        subtitle="total sessions"
+                        icon="🏋️"
+                        color="from-purple-500 to-indigo-500"
+                      />
+                      <StatCard
+                        title="Frequency"
+                        value={`${analytics.workoutsPerWeek}/wk`}
+                        subtitle="last 30 days"
+                        icon="📅"
+                        color="from-cyan-500 to-blue-500"
+                      />
+                      <StatCard
+                        title="Total Volume"
+                        value={`${(formatWeight(analytics.totalVolume, weightUnit) / 1000).toFixed(0)}k`}
+                        subtitle={weightUnit}
+                        icon="📊"
+                        color="from-emerald-500 to-teal-500"
+                      />
+                      <StatCard
+                        title="Active Streak"
+                        value={`${analytics.currentStreak}`}
+                        subtitle="weeks"
+                        icon="🔥"
+                        color="from-orange-500 to-red-500"
+                      />
+                    </div>
+
+                    {/* Personal Records */}
+                    <div className="glass-card rounded-2xl p-5">
+                      <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                        <span className="text-amber-400">🏆</span> Personal Records
+                      </h3>
+                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {Object.entries(analytics.personalRecords)
+                          .sort((a, b) => b[1].estimated1RM - a[1].estimated1RM)
+                          .slice(0, 6)
+                          .map(([name, pr]) => (
+                            <div key={name} className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 rounded-xl p-4">
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <div className="font-medium text-white">{name}</div>
+                                  <div className="text-sm text-slate-400">{getMuscleGroup(name)}</div>
+                                </div>
+                                <span className="pr-badge px-2 py-0.5 bg-amber-500/20 rounded text-amber-400 text-xs font-bold">PR</span>
+                              </div>
+                              <div className="mt-3 flex items-baseline gap-2">
+                                <span className="text-2xl font-bold text-white">{formatWeight(pr.weight, weightUnit)}</span>
+                                <span className="text-slate-400">{weightUnit}</span>
+                                <span className="text-slate-500">× {pr.reps}</span>
+                              </div>
+                              <div className="mt-1 text-xs text-slate-500">
+                                Est. 1RM: {formatWeight(pr.estimated1RM, weightUnit)} {weightUnit}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+
+                    {/* Recent Workouts */}
+                    <div className="glass-card rounded-2xl p-5">
+                      <h3 className="text-lg font-semibold mb-4">Recent Workouts</h3>
+                      <div className="space-y-2">
+                        {analytics.recentSessions.slice(0, 5).map(session => (
+                          <RecentWorkoutRow key={session.id} session={session} weightUnit={weightUnit} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Progress Tab */}
+                {activeTab === 'progress' && (
+                  <div className="space-y-6">
+                    {/* Exercise Progress Cards */}
+                    <div className="glass-card rounded-2xl p-5">
+                      <h3 className="text-lg font-semibold mb-4">Strength Progress</h3>
+                      <p className="text-sm text-slate-400 mb-4">Comparing your last 3 sessions vs earlier sessions</p>
+
+                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {Object.values(analytics.exerciseData)
+                          .filter(ex => !ex.isCardio && ex.sessions.length >= 2)
+                          .sort((a, b) => (b.weightProgressPercent || 0) - (a.weightProgressPercent || 0))
+                          .map(exercise => (
+                            <ProgressCard
+                              key={exercise.name}
+                              exercise={exercise}
+                              weightUnit={weightUnit}
+                              onClick={() => { setSelectedExercise(exercise.name); setActiveTab('exercises'); }}
+                            />
+                          ))}
+                      </div>
+                    </div>
+
+                    {/* Volume Trend */}
+                    <div className="glass-card rounded-2xl p-5">
+                      <h3 className="text-lg font-semibold mb-4">Weekly Volume Trend</h3>
+                      <WeeklyVolumeChart data={analytics.weeklyVolume} weightUnit={weightUnit} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Exercises Tab */}
+                {activeTab === 'exercises' && (
+                  <div className="space-y-6">
+                    {/* Exercise Selector */}
+                    <div className="glass-card rounded-2xl p-5">
+                      <h3 className="text-lg font-semibold mb-4">Exercise Progress Charts</h3>
+                      <div className="flex flex-wrap gap-2 mb-6">
+                        {analytics.exerciseList.map(name => (
+                          <button
+                            key={name}
+                            onClick={() => setSelectedExercise(selectedExercise === name ? null : name)}
+                            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                              selectedExercise === name
+                                ? 'bg-purple-600 text-white'
+                                : 'bg-slate-800 text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {name}
+                          </button>
+                        ))}
+                      </div>
+
+                      {selectedExercise && analytics.exerciseData[selectedExercise] && (
+                        <ExerciseDetailChart
+                          exercise={analytics.exerciseData[selectedExercise]}
+                          pr={analytics.personalRecords[selectedExercise]}
+                          weightUnit={weightUnit}
+                        />
+                      )}
+
+                      {!selectedExercise && (
+                        <div className="text-center py-8 text-slate-500">
+                          Select an exercise above to see detailed progress
+                        </div>
+                      )}
+                    </div>
+
+                    {/* All Exercises Summary */}
+                    <div className="glass-card rounded-2xl p-5">
+                      <h3 className="text-lg font-semibold mb-4">All Exercises Summary</h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-slate-400 border-b border-slate-700">
+                              <th className="pb-3 font-medium">Exercise</th>
+                              <th className="pb-3 font-medium">Muscle</th>
+                              <th className="pb-3 font-medium text-right">Sessions</th>
+                              <th className="pb-3 font-medium text-right">Total Sets</th>
+                              <th className="pb-3 font-medium text-right">Best Weight</th>
+                              <th className="pb-3 font-medium text-right">Progress</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.values(analytics.exerciseData)
+                              .filter(ex => !ex.isCardio)
+                              .sort((a, b) => b.sessions.length - a.sessions.length)
+                              .map(ex => {
+                                const pr = analytics.personalRecords[ex.name];
+                                return (
+                                  <tr key={ex.name} className="border-b border-slate-800 hover:bg-slate-800/30">
+                                    <td className="py-3 font-medium text-white">{ex.name}</td>
+                                    <td className="py-3 text-slate-400">{ex.muscleGroup}</td>
+                                    <td className="py-3 text-right">{ex.sessions.length}</td>
+                                    <td className="py-3 text-right">{ex.totalSets}</td>
+                                    <td className="py-3 text-right font-medium">
+                                      {pr ? `${formatWeight(pr.weight, weightUnit)} ${weightUnit}` : '-'}
+                                    </td>
+                                    <td className="py-3 text-right">
+                                      {ex.weightProgress !== undefined ? (
+                                        <span className={ex.weightProgress > 0 ? 'progress-up' : ex.weightProgress < 0 ? 'progress-down' : 'progress-same'}>
+                                          {ex.weightProgress > 0 ? '↑' : ex.weightProgress < 0 ? '↓' : '→'}
+                                          {Math.abs(ex.weightProgressPercent).toFixed(0)}%
+                                        </span>
+                                      ) : '-'}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Recovery Tab */}
+                {activeTab === 'recovery' && (
+                  <div className="space-y-6">
+                    {/* Muscle Recovery Status */}
+                    <div className="glass-card rounded-2xl p-5">
+                      <h3 className="text-lg font-semibold mb-2">Muscle Group Recovery</h3>
+                      <p className="text-sm text-slate-400 mb-4">Days since last trained - aim for 48-72 hours between same muscle groups</p>
+
+                      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {Object.entries(analytics.muscleRecovery)
+                          .filter(([group]) => group !== 'Cardio' && group !== 'Other')
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([group, days]) => (
+                            <RecoveryCard key={group} muscleGroup={group} daysSince={days} />
+                          ))}
+                      </div>
+                    </div>
+
+                    {/* Training Recommendations */}
+                    <div className="glass-card rounded-2xl p-5">
+                      <h3 className="text-lg font-semibold mb-4">Training Suggestions</h3>
+                      <TrainingSuggestions recovery={analytics.muscleRecovery} exerciseData={analytics.exerciseData} />
+                    </div>
+
+                    {/* Workout Frequency */}
+                    <div className="glass-card rounded-2xl p-5">
+                      <h3 className="text-lg font-semibold mb-4">Workout Frequency</h3>
+                      <WorkoutFrequencyChart sessions={mergedData.gymSessions} />
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Empty State */}
+            {!analytics && (
+              <div className="text-center py-16">
+                <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-slate-800 flex items-center justify-center">
+                  <svg className="w-10 h-10 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
+                <h2 className="text-lg font-semibold text-slate-300 mb-2">No Data Yet</h2>
+                <p className="text-slate-500 max-w-sm mx-auto">
+                  Import your workout JSON files to track progress, see PRs, and get training insights.
+                </p>
+              </div>
+            )}
+          </main>
+        </div>
+      );
+    }
+
+    // Stat Card
+    function StatCard({ title, value, subtitle, icon, color }) {
+      return (
+        <div className="stat-card glass-card rounded-xl p-4">
+          <div className="flex items-center gap-3 mb-2">
+            <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${color} flex items-center justify-center text-lg`}>
+              {icon}
+            </div>
+            <div className="text-2xl font-bold text-white">{value}</div>
+          </div>
+          <div className="text-sm text-slate-400">{title}</div>
+          {subtitle && <div className="text-xs text-slate-500">{subtitle}</div>}
+        </div>
+      );
+    }
+
+    // Progress Card
+    function ProgressCard({ exercise, weightUnit, onClick }) {
+      const progress = exercise.weightProgressPercent || 0;
+      const isUp = progress > 0;
+      const isDown = progress < 0;
+      const lastSession = exercise.sessions[exercise.sessions.length - 1];
+      const lastWeight = lastSession?.bestWeight || 0;
+
+      return (
+        <div
+          onClick={onClick}
+          className="bg-slate-800/50 rounded-xl p-4 cursor-pointer hover:bg-slate-800 transition-colors"
+        >
+          <div className="flex items-start justify-between mb-2">
+            <div>
+              <div className="font-medium text-white">{exercise.name}</div>
+              <div className="text-xs text-slate-500">{exercise.muscleGroup}</div>
+            </div>
+            <div className={`px-2 py-0.5 rounded text-xs font-bold ${
+              isUp ? 'bg-emerald-500/20 text-emerald-400' :
+              isDown ? 'bg-red-500/20 text-red-400' :
+              'bg-slate-600/20 text-slate-400'
+            }`}>
+              {isUp ? '↑' : isDown ? '↓' : '→'} {Math.abs(progress).toFixed(0)}%
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-xl font-bold">{formatWeight(lastWeight, weightUnit)}</span>
+            <span className="text-sm text-slate-500">{weightUnit}</span>
+          </div>
+          <div className="text-xs text-slate-500 mt-1">{exercise.sessions.length} sessions</div>
+        </div>
+      );
+    }
+
+    // Recovery Card
+    function RecoveryCard({ muscleGroup, daysSince }) {
+      let status, color, bg;
+      if (daysSince <= 1) {
+        status = 'Recovering';
+        color = 'text-red-400';
+        bg = 'from-red-500/20 to-orange-500/20';
+      } else if (daysSince <= 3) {
+        status = 'Ready';
+        color = 'text-emerald-400';
+        bg = 'from-emerald-500/20 to-teal-500/20';
+      } else if (daysSince <= 7) {
+        status = 'Train Soon';
+        color = 'text-amber-400';
+        bg = 'from-amber-500/20 to-orange-500/20';
+      } else {
+        status = 'Overdue';
+        color = 'text-purple-400';
+        bg = 'from-purple-500/20 to-indigo-500/20';
+      }
+
+      return (
+        <div className={`bg-gradient-to-br ${bg} rounded-xl p-4 border border-slate-700/50`}>
+          <div className="font-medium text-white mb-1">{muscleGroup}</div>
+          <div className="text-2xl font-bold mb-1">{daysSince}d</div>
+          <div className={`text-sm ${color}`}>{status}</div>
+        </div>
+      );
+    }
+
+    // Training Suggestions
+    function TrainingSuggestions({ recovery, exerciseData }) {
+      const suggestions = [];
+
+      // Find muscles that need training
+      const readyMuscles = Object.entries(recovery)
+        .filter(([group, days]) => days >= 3 && group !== 'Cardio' && group !== 'Other')
+        .sort((a, b) => b[1] - a[1]);
+
+      if (readyMuscles.length > 0) {
+        const [topMuscle, days] = readyMuscles[0];
+        suggestions.push({
+          type: 'priority',
+          message: `${topMuscle} hasn't been trained in ${days} days - consider training it soon!`
+        });
+      }
+
+      // Check for imbalances
+      const muscleVolumes = {};
+      Object.values(exerciseData).forEach(ex => {
+        if (!ex.isCardio) {
+          muscleVolumes[ex.muscleGroup] = (muscleVolumes[ex.muscleGroup] || 0) + ex.totalVolume;
+        }
+      });
+
+      const volumes = Object.entries(muscleVolumes).filter(([g]) => g !== 'Other');
+      if (volumes.length >= 2) {
+        const sorted = volumes.sort((a, b) => b[1] - a[1]);
+        const highest = sorted[0];
+        const lowest = sorted[sorted.length - 1];
+        if (highest[1] > lowest[1] * 3) {
+          suggestions.push({
+            type: 'balance',
+            message: `${lowest[0]} has significantly less volume than ${highest[0]} - consider adding more ${lowest[0].toLowerCase()} work.`
+          });
+        }
+      }
+
+      // Progressive overload reminder
+      const stagnant = Object.values(exerciseData)
+        .filter(ex => !ex.isCardio && ex.sessions.length >= 4 && (ex.weightProgressPercent || 0) <= 0);
+
+      if (stagnant.length > 0) {
+        suggestions.push({
+          type: 'progress',
+          message: `${stagnant[0].name} hasn't increased in weight recently. Try adding 2.5-5% more weight or an extra rep.`
+        });
+      }
+
+      if (suggestions.length === 0) {
+        suggestions.push({
+          type: 'good',
+          message: 'Your training looks balanced! Keep up the good work.'
+        });
+      }
+
+      return (
+        <div className="space-y-3">
+          {suggestions.map((s, i) => (
+            <div key={i} className={`p-4 rounded-xl ${
+              s.type === 'priority' ? 'bg-amber-500/10 border border-amber-500/20' :
+              s.type === 'balance' ? 'bg-purple-500/10 border border-purple-500/20' :
+              s.type === 'progress' ? 'bg-cyan-500/10 border border-cyan-500/20' :
+              'bg-emerald-500/10 border border-emerald-500/20'
+            }`}>
+              <span className="mr-2">
+                {s.type === 'priority' ? '⚠️' : s.type === 'balance' ? '⚖️' : s.type === 'progress' ? '📈' : '✅'}
+              </span>
+              {s.message}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // Recent Workout Row
+    function RecentWorkoutRow({ session, weightUnit }) {
+      const date = new Date(session.startTime);
+      const exercises = session.exercises || [];
+      const muscleGroups = [...new Set(exercises.map(e => getMuscleGroup(e.name)))].filter(g => g !== 'Cardio');
+
+      return (
+        <div className="flex items-center justify-between p-3 bg-slate-800/30 rounded-xl">
+          <div>
+            <div className="font-medium text-white">
+              {date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+            </div>
+            <div className="text-sm text-slate-400">
+              {muscleGroups.slice(0, 3).join(', ')}{muscleGroups.length > 3 ? '...' : ''}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-sm text-purple-400">{exercises.length} exercises</div>
+            <div className="text-xs text-slate-500">{session.duration}min</div>
+          </div>
+        </div>
+      );
+    }
+
+    // Exercise Detail Chart
+    function ExerciseDetailChart({ exercise, pr, weightUnit }) {
+      const canvasRef = useRef(null);
+      const chartRef = useRef(null);
+
+      useEffect(() => {
+        if (!canvasRef.current || exercise.sessions.length === 0) return;
+        if (chartRef.current) chartRef.current.destroy();
+
+        const ctx = canvasRef.current.getContext('2d');
+        const sessions = exercise.sessions.filter(s => s.bestWeight > 0);
+
+        chartRef.current = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: sessions.map(s => new Date(s.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
+            datasets: [{
+              label: 'Best Weight',
+              data: sessions.map(s => weightUnit === 'lbs' ? kgToLbs(s.bestWeight) : s.bestWeight),
+              borderColor: 'rgba(139, 92, 246, 1)',
+              backgroundColor: 'rgba(139, 92, 246, 0.1)',
+              fill: true,
+              tension: 0.3,
+              pointRadius: 4,
+              pointHoverRadius: 6
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => `${ctx.parsed.y.toFixed(1)} ${weightUnit}`
+                }
+              }
+            },
+            scales: {
+              y: {
+                ticks: { color: 'rgba(148, 163, 184, 0.8)' },
+                grid: { color: 'rgba(148, 163, 184, 0.1)' }
+              },
+              x: {
+                ticks: { color: 'rgba(148, 163, 184, 0.8)', maxRotation: 45 },
+                grid: { display: false }
+              }
+            }
+          }
+        });
+
+        return () => chartRef.current?.destroy();
+      }, [exercise, weightUnit]);
+
+      return (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h4 className="text-lg font-semibold text-white">{exercise.name}</h4>
+              <p className="text-sm text-slate-400">{exercise.muscleGroup} · {exercise.sessions.length} sessions</p>
+            </div>
+            {pr && (
+              <div className="text-right">
+                <div className="text-xs text-amber-400">Personal Record</div>
+                <div className="text-lg font-bold">{formatWeight(pr.weight, weightUnit)} {weightUnit} × {pr.reps}</div>
+              </div>
+            )}
+          </div>
+          <div style={{ height: '250px' }}>
+            <canvas ref={canvasRef} />
+          </div>
+
+          {/* Session History */}
+          <div className="mt-4 max-h-48 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="text-slate-400">
+                <tr>
+                  <th className="text-left pb-2">Date</th>
+                  <th className="text-right pb-2">Best Set</th>
+                  <th className="text-right pb-2">Volume</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...exercise.sessions].reverse().map((s, i) => (
+                  <tr key={i} className="border-t border-slate-800">
+                    <td className="py-2 text-slate-300">
+                      {new Date(s.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </td>
+                    <td className="py-2 text-right">
+                      {s.bestSet ? `${formatWeight(s.bestSet.weight, weightUnit)} × ${s.bestSet.reps}` : '-'}
+                    </td>
+                    <td className="py-2 text-right text-slate-400">
+                      {formatWeight(s.volume, weightUnit).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    // Weekly Volume Chart
+    function WeeklyVolumeChart({ data, weightUnit }) {
+      const canvasRef = useRef(null);
+      const chartRef = useRef(null);
+
+      useEffect(() => {
+        if (!canvasRef.current) return;
+        if (chartRef.current) chartRef.current.destroy();
+
+        const weeks = Object.keys(data).sort().slice(-8);
+        const muscleGroupsList = ['Chest', 'Back', 'Shoulders', 'Legs', 'Biceps', 'Triceps'];
+        const colors = [
+          'rgba(244, 63, 94, 0.7)',
+          'rgba(59, 130, 246, 0.7)',
+          'rgba(245, 158, 11, 0.7)',
+          'rgba(16, 185, 129, 0.7)',
+          'rgba(139, 92, 246, 0.7)',
+          'rgba(236, 72, 153, 0.7)'
+        ];
+
+        const datasets = muscleGroupsList.map((group, idx) => ({
+          label: group,
+          data: weeks.map(w => {
+            const vol = data[w]?.[group] || 0;
+            return weightUnit === 'lbs' ? kgToLbs(vol) : vol;
+          }),
+          backgroundColor: colors[idx]
+        }));
+
+        const ctx = canvasRef.current.getContext('2d');
+        chartRef.current = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: weeks.map(w => {
+              const d = new Date(w);
+              return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            }),
+            datasets
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: 'top',
+                labels: { color: 'rgba(148, 163, 184, 0.8)', usePointStyle: true, pointStyle: 'rect' }
+              }
+            },
+            scales: {
+              x: {
+                stacked: true,
+                ticks: { color: 'rgba(148, 163, 184, 0.8)' },
+                grid: { display: false }
+              },
+              y: {
+                stacked: true,
+                ticks: {
+                  color: 'rgba(148, 163, 184, 0.8)',
+                  callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v
+                },
+                grid: { color: 'rgba(148, 163, 184, 0.1)' }
+              }
+            }
+          }
+        });
+
+        return () => chartRef.current?.destroy();
+      }, [data, weightUnit]);
+
+      return (
+        <div style={{ height: '300px' }}>
+          <canvas ref={canvasRef} />
+        </div>
+      );
+    }
+
+    // Workout Frequency Chart
+    function WorkoutFrequencyChart({ sessions }) {
+      const canvasRef = useRef(null);
+      const chartRef = useRef(null);
+
+      useEffect(() => {
+        if (!canvasRef.current || sessions.length === 0) return;
+        if (chartRef.current) chartRef.current.destroy();
+
+        // Last 8 weeks
+        const weeks = [];
+        const now = new Date();
+        for (let i = 7; i >= 0; i--) {
+          const weekStart = new Date(now);
+          weekStart.setDate(weekStart.getDate() - weekStart.getDay() - (i * 7));
+          weekStart.setHours(0, 0, 0, 0);
+          weeks.push(weekStart);
+        }
+
+        const weekCounts = weeks.map(weekStart => {
+          const weekEnd = new Date(weekStart);
+          weekEnd.setDate(weekEnd.getDate() + 7);
+          return sessions.filter(s => {
+            const d = new Date(s.startTime);
+            return d >= weekStart && d < weekEnd;
+          }).length;
+        });
+
+        const ctx = canvasRef.current.getContext('2d');
+        chartRef.current = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: weeks.map(w => w.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
+            datasets: [{
+              label: 'Workouts',
+              data: weekCounts,
+              backgroundColor: weekCounts.map(c =>
+                c >= 4 ? 'rgba(16, 185, 129, 0.7)' :
+                c >= 3 ? 'rgba(139, 92, 246, 0.7)' :
+                c >= 2 ? 'rgba(245, 158, 11, 0.7)' :
+                'rgba(244, 63, 94, 0.7)'
+              ),
+              borderRadius: 6
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: { color: 'rgba(148, 163, 184, 0.8)', stepSize: 1 },
+                grid: { color: 'rgba(148, 163, 184, 0.1)' }
+              },
+              x: {
+                ticks: { color: 'rgba(148, 163, 184, 0.8)' },
+                grid: { display: false }
+              }
+            }
+          }
+        });
+
+        return () => chartRef.current?.destroy();
+      }, [sessions]);
+
+      return (
+        <div>
+          <div className="flex items-center gap-4 mb-4 text-sm">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-500"></span> 4+ (Great)</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-purple-500"></span> 3 (Good)</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500"></span> 2 (Okay)</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-500"></span> 0-1 (Low)</span>
+          </div>
+          <div style={{ height: '200px' }}>
+            <canvas ref={canvasRef} />
+          </div>
+        </div>
+      );
+    }
+
+    // Render
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<Dashboard />);
+  </script>
+</body>
+</html>
