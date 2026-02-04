@@ -182,6 +182,64 @@
     .progress-up { color: #10b981; }
     .progress-down { color: #ef4444; }
     .progress-same { color: #6b7280; }
+
+    /* Dumbphone Keyboard Navigation Styles */
+    /* High-visibility focus ring for D-pad navigation */
+    button:focus,
+    [role="button"]:focus,
+    input:focus,
+    select:focus,
+    a:focus,
+    [tabindex]:focus:not([tabindex="-1"]),
+    [data-nav]:focus {
+      outline: 3px solid #fbbf24 !important;
+      outline-offset: 2px !important;
+      box-shadow: 0 0 0 6px rgba(251, 191, 36, 0.3) !important;
+      position: relative;
+      z-index: 50;
+    }
+
+    /* Hide focus when using mouse */
+    .using-mouse *:focus {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+
+    /* Navigation hint bar */
+    .nav-hint-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(to top, rgba(0,0,0,0.95), rgba(0,0,0,0.8));
+      padding: 8px 12px;
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      font-size: 11px;
+      color: #9ca3af;
+      z-index: 100;
+      border-top: 1px solid #374151;
+    }
+
+    .nav-hint {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .nav-hint kbd {
+      background: #374151;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 10px;
+      color: #e5e7eb;
+      border: 1px solid #4b5563;
+    }
+
+    /* Ensure adequate padding for focus rings */
+    .pb-nav { padding-bottom: 60px !important; }
   </style>
   <script src="https://www.usersesh.com/tracker.js" data-site-id="019cf2c0-99e4-4793-afa1-e5e0d5cc505f" async></script>
 </head>
@@ -262,6 +320,153 @@
   <script type="text/babel">
     const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
+    // ============================================
+    // DUMBPHONE KEYBOARD NAVIGATION SYSTEM
+    // ============================================
+    // Supports: D-pad (arrows), Enter (select), Back (escape/backspace), Number keys (1-4 for tabs)
+
+    function useKeyboardNavigation({ tabIds, activeTab, setActiveTab }) {
+      const [isKeyboardMode, setIsKeyboardMode] = useState(false);
+
+      useEffect(() => {
+        // Get all focusable elements
+        const getFocusableElements = () => {
+          const selector = [
+            'button:not([disabled]):not([aria-hidden="true"])',
+            'input:not([disabled]):not([type="hidden"])',
+            'select:not([disabled])',
+            'a[href]',
+            '[tabindex]:not([tabindex="-1"])',
+            '[data-nav]'
+          ].join(', ');
+
+          const elements = Array.from(document.querySelectorAll(selector));
+
+          return elements.filter(el => {
+            const style = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            return style.display !== 'none' &&
+                   style.visibility !== 'hidden' &&
+                   rect.width > 0 &&
+                   rect.height > 0 &&
+                   !el.closest('[aria-hidden="true"]');
+          });
+        };
+
+        // Navigate to next/previous element
+        const navigate = (direction) => {
+          const elements = getFocusableElements();
+          if (elements.length === 0) return;
+
+          const currentElement = document.activeElement;
+          const currentIndex = elements.indexOf(currentElement);
+
+          let newIndex;
+          if (currentIndex === -1) {
+            newIndex = 0;
+          } else if (direction === 'down' || direction === 'right') {
+            newIndex = (currentIndex + 1) % elements.length;
+          } else {
+            newIndex = (currentIndex - 1 + elements.length) % elements.length;
+          }
+
+          const element = elements[newIndex];
+          if (element) {
+            element.focus({ preventScroll: false });
+            element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
+        };
+
+        const handleKeyDown = (e) => {
+          if (!isKeyboardMode) {
+            setIsKeyboardMode(true);
+            document.body.classList.remove('using-mouse');
+          }
+
+          // Number keys 1-4 for tab switching
+          if (e.key >= '1' && e.key <= '4' && !e.target.matches('input, textarea')) {
+            e.preventDefault();
+            const tabIndex = parseInt(e.key) - 1;
+            if (tabIds && tabIndex < tabIds.length) {
+              setActiveTab(tabIds[tabIndex]);
+            }
+            return;
+          }
+
+          // Arrow key navigation (D-pad)
+          if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+            e.preventDefault();
+            const direction = e.key.replace('Arrow', '').toLowerCase();
+            navigate(direction);
+            return;
+          }
+
+          // Enter key - activate focused element
+          if (e.key === 'Enter') {
+            const activeEl = document.activeElement;
+            if (activeEl && activeEl !== document.body) {
+              if (!activeEl.matches('input, textarea, select')) {
+                e.preventDefault();
+                activeEl.click();
+              }
+            }
+            return;
+          }
+
+          // Escape or Backspace - go back to main app
+          if (e.key === 'Escape' || (e.key === 'Backspace' && !e.target.matches('input, textarea'))) {
+            e.preventDefault();
+            // Navigate back to main app
+            window.location.href = './index.html';
+            return;
+          }
+        };
+
+        const handleMouseDown = () => {
+          setIsKeyboardMode(false);
+          document.body.classList.add('using-mouse');
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('mousedown', handleMouseDown);
+        window.addEventListener('touchstart', handleMouseDown);
+
+        return () => {
+          window.removeEventListener('keydown', handleKeyDown);
+          window.removeEventListener('mousedown', handleMouseDown);
+          window.removeEventListener('touchstart', handleMouseDown);
+        };
+      }, [isKeyboardMode, tabIds, activeTab, setActiveTab]);
+
+      return { isKeyboardMode };
+    }
+
+    // Navigation Hint Bar Component
+    function NavHintBar({ showTabHints = true }) {
+      return (
+        <div className="nav-hint-bar" aria-hidden="true">
+          <div className="nav-hint">
+            <kbd>↑↓←→</kbd>
+            <span>Navigate</span>
+          </div>
+          <div className="nav-hint">
+            <kbd>OK</kbd>
+            <span>Select</span>
+          </div>
+          <div className="nav-hint">
+            <kbd>Back</kbd>
+            <span>Home</span>
+          </div>
+          {showTabHints && (
+            <div className="nav-hint">
+              <kbd>1-4</kbd>
+              <span>Tabs</span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // Utility functions
     const kgToLbs = (kg) => kg * 2.20462;
     const lbsToKg = (lbs) => lbs / 2.20462;
@@ -339,6 +544,10 @@
       const [activeTab, setActiveTab] = useState('overview');
       const [useLocalStorage, setUseLocalStorage] = useState(true);
       const fileInputRef = useRef(null);
+
+      // Dumbphone keyboard navigation (D-pad, Enter, Back, number keys 1-4)
+      const tabIds = ['overview', 'progress', 'exercises', 'recovery'];
+      useKeyboardNavigation({ tabIds, activeTab, setActiveTab });
 
       // Load from localStorage on mount
       useEffect(() => {
@@ -611,13 +820,13 @@
       }, [mergedData]);
 
       return (
-        <div className="min-h-screen text-white">
+        <div className="min-h-screen text-white pb-nav">
           {/* Header */}
           <header className="glass sticky top-0 z-50">
             <div className="max-w-7xl mx-auto px-4 py-4">
               <div className="flex items-center justify-between mb-3">
-                <a href="./index.html" className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <a href="./index.html" className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors" aria-label="Back to main app (press Back key)" data-nav="back">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                   </svg>
                   <span className="hidden sm:inline">Back</span>
@@ -628,19 +837,21 @@
                 <button
                   onClick={() => setWeightUnit(u => u === 'kg' ? 'lbs' : 'kg')}
                   className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-medium transition-colors"
+                  aria-label={`Switch to ${weightUnit === 'kg' ? 'pounds' : 'kilograms'}`}
+                  data-nav="unit"
                 >
                   {weightUnit.toUpperCase()}
                 </button>
               </div>
 
-              {/* Tabs */}
+              {/* Tabs - Number keys 1-4 for quick switching */}
               {analytics && (
-                <div className="flex gap-1 overflow-x-auto pb-1">
+                <nav className="flex gap-1 overflow-x-auto pb-1" role="tablist" aria-label="Dashboard sections">
                   {[
-                    { id: 'overview', label: 'Overview', icon: '📊' },
-                    { id: 'progress', label: 'Progress', icon: '📈' },
-                    { id: 'exercises', label: 'Exercises', icon: '🏋️' },
-                    { id: 'recovery', label: 'Recovery', icon: '💪' }
+                    { id: 'overview', label: 'Overview', icon: '📊', key: '1' },
+                    { id: 'progress', label: 'Progress', icon: '📈', key: '2' },
+                    { id: 'exercises', label: 'Exercises', icon: '🏋️', key: '3' },
+                    { id: 'recovery', label: 'Recovery', icon: '💪', key: '4' }
                   ].map(tab => (
                     <button
                       key={tab.id}
@@ -650,12 +861,18 @@
                           ? 'bg-purple-600 text-white'
                           : 'bg-slate-800/50 text-slate-400 hover:text-white'
                       }`}
+                      role="tab"
+                      aria-selected={activeTab === tab.id}
+                      aria-controls={`panel-${tab.id}`}
+                      data-nav="tab"
+                      aria-label={`${tab.label} (press ${tab.key})`}
                     >
-                      <span className="mr-1">{tab.icon}</span>
+                      <span className="mr-1" aria-hidden="true">{tab.icon}</span>
                       {tab.label}
+                      <span className="text-xs opacity-50 ml-1">({tab.key})</span>
                     </button>
                   ))}
-                </div>
+                </nav>
               )}
             </div>
           </header>
@@ -991,6 +1208,9 @@
               </div>
             )}
           </main>
+
+          {/* Navigation hint bar for dumbphone users */}
+          <NavHintBar showTabHints={!!analytics} />
         </div>
       );
     }
