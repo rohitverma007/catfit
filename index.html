@@ -212,8 +212,7 @@
   <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.tailwindcss.com?plugins=forms" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/lucide-react@0.263.1/dist/umd/lucide-react.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: system-ui, -apple-system, sans-serif; }
@@ -332,9 +331,6 @@
   
   <script type="text/babel" data-presets="react">
     const { useState, useEffect, useRef, useCallback, useMemo, useContext, createContext } = React;
-
-    // Make Lucide icons available
-    const Icons = window.lucideReact || {};
 
     // Error boundary component
     class ErrorBoundary extends React.Component {
