@@ -353,7 +353,7 @@
 
     try {
       const __Component__ = function FitnessTracker() {
-  const [activeTab, setActiveTab] = useState('cal');
+  const [activeTab, setActiveTab] = useState('gym');
   
   const loadData = (key, defaultValue) => {
     try {
@@ -822,13 +822,14 @@
 
       {/* Tabs */}
       <div className="grid grid-cols-4 gap-1 p-1 bg-gray-900 sticky top-0 z-10">
-        {[{ id: 'cal', icon: '🔥' }, { id: 'wgt', icon: '⚖️' }, { id: 'gym', icon: '💪' }, { id: 'set', icon: '⚙️' }].map(tab => (
+        {[{ id: 'cal', icon: '🔥', label: 'Calories' }, { id: 'wgt', icon: '⚖️', label: 'Weight' }, { id: 'gym', icon: '💪', label: 'Gym' }, { id: 'set', icon: '⚙️', label: 'Settings' }].map(tab => (
           <button
             key={tab.id}
             onClick={() => { setActiveTab(tab.id); setViewingSession(null); }}
-            className={`py-4 text-2xl rounded-lg relative ${activeTab === tab.id ? 'bg-purple-600' : 'bg-gray-800'}`}
+            className={`py-2 rounded-lg relative flex flex-col items-center ${activeTab === tab.id ? 'bg-purple-600' : 'bg-gray-800'}`}
           >
-            {tab.icon}
+            <span className="text-2xl">{tab.icon}</span>
+            <span className="text-xs mt-1 opacity-80">{tab.label}</span>
             {tab.id === 'gym' && activeWorkout && <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />}
           </button>
         ))}
