@@ -284,7 +284,7 @@
   const addMeal = () => {
     const cals = typeof newMeal.calories === 'string' ? parseInt(newMeal.calories) : newMeal.calories;
     if (newMeal.name && cals > 0) {
-      setMeals([{ id: crypto.randomUUID(), name: newMeal.name, calories: cals, date: selectedDate }, ...meals]);
+      setMeals([{ id: Date.now().toString(), name: newMeal.name, calories: cals, date: selectedDate }, ...meals]);
       setNewMeal({ name: '', calories: 300 });
       setShowAddMeal(false);
     }
@@ -293,14 +293,14 @@
   const addWeight = () => {
     const today = new Date();
     const date = `${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}`;
-    setWeightEntries([...weightEntries, { id: crypto.randomUUID(), weight: newWeight, date }]);
+    setWeightEntries([...weightEntries, { id: Date.now().toString(), weight: newWeight, date }]);
     setShowAddWeight(false);
   };
 
   const startWorkout = () => {
     const now = new Date();
     setActiveWorkout({
-      id: crypto.randomUUID(),
+      id: Date.now().toString(),
       startTime: now.toISOString(),
       date: now.toLocaleDateString(),
       time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -319,7 +319,7 @@
   const addExercise = (name) => {
     setActiveWorkout({
       ...activeWorkout,
-      exercises: [...activeWorkout.exercises, { id: crypto.randomUUID(), name, sets: [] }]
+      exercises: [...activeWorkout.exercises, { id: Date.now().toString(), name, sets: [] }]
     });
     setShowExercisePicker(false);
   };
@@ -330,7 +330,7 @@
       ...activeWorkout,
       exercises: activeWorkout.exercises.map(ex =>
         ex.id === exerciseId
-          ? { ...ex, sets: [...ex.sets, { id: crypto.randomUUID(), reps: newSet.reps, weight: weightInKg }] }
+          ? { ...ex, sets: [...ex.sets, { id: Date.now().toString(), reps: newSet.reps, weight: weightInKg }] }
           : ex
       )
     });
@@ -342,7 +342,7 @@
       ...activeWorkout,
       exercises: activeWorkout.exercises.map(ex =>
         ex.id === exerciseId
-          ? { ...ex, sets: [...ex.sets, { id: crypto.randomUUID(), duration: newCardioSet.duration, calories: newCardioSet.calories, isCardio: true }] }
+          ? { ...ex, sets: [...ex.sets, { id: Date.now().toString(), duration: newCardioSet.duration, calories: newCardioSet.calories, isCardio: true }] }
           : ex
       )
     });
@@ -365,8 +365,8 @@
   const quickRepeat = (exerciseId, lastSet) => {
     if (lastSet) {
       const newSetData = lastSet.isCardio
-        ? { id: crypto.randomUUID(), duration: lastSet.duration, calories: lastSet.calories, isCardio: true }
-        : { id: crypto.randomUUID(), reps: lastSet.reps, weight: lastSet.weight };
+        ? { id: Date.now().toString(), duration: lastSet.duration, calories: lastSet.calories, isCardio: true }
+        : { id: Date.now().toString(), reps: lastSet.reps, weight: lastSet.weight };
       setActiveWorkout({
         ...activeWorkout,
         exercises: activeWorkout.exercises.map(ex =>
@@ -380,7 +380,7 @@
 
   const addTri = () => {
     if (newTri.distance > 0) {
-      setTriSessions([{ id: crypto.randomUUID(), ...newTri }, ...triSessions]);
+      setTriSessions([{ id: Date.now().toString(), ...newTri }, ...triSessions]);
       setNewTri({ type: 'swim', distance: 0 });
       setShowAddTri(false);
     }
@@ -750,7 +750,7 @@
                     const today = new Date();
                     const date = `${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}`;
                     const weightInKg = weightUnit === 'lbs' ? lbsToKg(newWeight) : newWeight;
-                    setWeightEntries([...weightEntries, { id: crypto.randomUUID(), weight: weightInKg, date }]);
+                    setWeightEntries([...weightEntries, { id: Date.now().toString(), weight: weightInKg, date }]);
                     setShowAddWeight(false);
                   }} className="bg-green-600 rounded-xl py-3 font-bold">SAVE</button>
                 </div>
@@ -1082,12 +1082,12 @@
                             exercises: (s.exercises || []).slice(0, 50).filter(ex =>
                               ex && typeof ex === 'object' && typeof ex.name === 'string'
                             ).map(ex => ({
-                              id: sanitizeStr(ex.id || crypto.randomUUID(), 50),
+                              id: sanitizeStr(ex.id || Date.now().toString(), 50),
                               name: sanitizeStr(ex.name, 50),
                               sets: (ex.sets || []).slice(0, 100).filter(set =>
                                 set && typeof set === 'object'
                               ).map(set => ({
-                                id: sanitizeStr(set.id || crypto.randomUUID(), 50),
+                                id: sanitizeStr(set.id || Date.now().toString(), 50),
                                 reps: typeof set.reps === 'number' ? Math.min(Math.max(0, Math.floor(set.reps)), 1000) : 0,
                                 weight: typeof set.weight === 'number' ? Math.min(Math.max(0, set.weight), 1000) : 0,
                                 duration: typeof set.duration === 'number' ? Math.min(Math.max(0, Math.floor(set.duration)), 600) : undefined,
