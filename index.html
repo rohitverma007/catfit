@@ -224,6 +224,93 @@
       font-family: monospace;
       white-space: pre-wrap;
     }
+
+    /* Dumbphone Keyboard Navigation Styles */
+    /* High-visibility focus ring for D-pad navigation */
+    .nav-focus:focus,
+    [data-nav]:focus {
+      outline: 3px solid #fbbf24 !important;
+      outline-offset: 2px !important;
+      box-shadow: 0 0 0 6px rgba(251, 191, 36, 0.3) !important;
+      position: relative;
+      z-index: 50;
+    }
+
+    /* Focus styles for different element types */
+    button:focus,
+    [role="button"]:focus,
+    input:focus,
+    select:focus,
+    a:focus,
+    [tabindex]:focus:not([tabindex="-1"]) {
+      outline: 3px solid #fbbf24 !important;
+      outline-offset: 2px !important;
+      box-shadow: 0 0 0 6px rgba(251, 191, 36, 0.3) !important;
+    }
+
+    /* Hide focus when using mouse */
+    .using-mouse *:focus {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+
+    /* Navigation hint bar */
+    .nav-hint-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(to top, rgba(0,0,0,0.95), rgba(0,0,0,0.8));
+      padding: 8px 12px;
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      font-size: 11px;
+      color: #9ca3af;
+      z-index: 100;
+      border-top: 1px solid #374151;
+    }
+
+    .nav-hint {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .nav-hint kbd {
+      background: #374151;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 10px;
+      color: #e5e7eb;
+      border: 1px solid #4b5563;
+    }
+
+    /* Scrollable regions focus */
+    .scroll-container:focus {
+      outline: 2px solid #fbbf24 !important;
+      outline-offset: -2px !important;
+    }
+
+    /* Skip link for accessibility */
+    .skip-link {
+      position: absolute;
+      top: -100px;
+      left: 0;
+      background: #fbbf24;
+      color: #000;
+      padding: 8px 16px;
+      z-index: 1000;
+      font-weight: bold;
+    }
+
+    .skip-link:focus {
+      top: 0;
+    }
+
+    /* Ensure adequate padding for focus rings */
+    .pb-nav { padding-bottom: 60px !important; }
   </style>
   <script src="https://www.usersesh.com/tracker.js" data-site-id="019cf2c0-99e4-4793-afa1-e5e0d5cc505f" async></script>
 </head>
@@ -332,6 +419,293 @@
   <script type="text/babel" data-presets="react">
     const { useState, useEffect, useRef, useCallback, useMemo, useContext, createContext } = React;
 
+    // ============================================
+    // DUMBPHONE KEYBOARD NAVIGATION SYSTEM
+    // ============================================
+    // Supports: D-pad (arrows), Enter (select), Back (escape/backspace), Number keys (1-4 for tabs)
+
+    const KeyboardNavContext = createContext(null);
+
+    // Hook for keyboard navigation
+    function useKeyboardNav() {
+      return useContext(KeyboardNavContext);
+    }
+
+    // Keyboard Navigation Provider Component
+    function KeyboardNavProvider({ children, activeTab, setActiveTab, modals = {} }) {
+      const [focusedIndex, setFocusedIndex] = useState(0);
+      const [isKeyboardMode, setIsKeyboardMode] = useState(false);
+      const containerRef = useRef(null);
+
+      // Get all focusable elements in current view
+      const getFocusableElements = useCallback(() => {
+        if (!containerRef.current) return [];
+
+        // Select all interactive elements
+        const selector = [
+          'button:not([disabled]):not([aria-hidden="true"])',
+          'input:not([disabled]):not([type="hidden"])',
+          'select:not([disabled])',
+          'a[href]',
+          '[tabindex]:not([tabindex="-1"])',
+          '[data-nav]'
+        ].join(', ');
+
+        const elements = Array.from(containerRef.current.querySelectorAll(selector));
+
+        // Filter out hidden elements
+        return elements.filter(el => {
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.display !== 'none' &&
+                 style.visibility !== 'hidden' &&
+                 rect.width > 0 &&
+                 rect.height > 0 &&
+                 !el.closest('[aria-hidden="true"]');
+        });
+      }, []);
+
+      // Focus an element by index
+      const focusElement = useCallback((index) => {
+        const elements = getFocusableElements();
+        if (elements.length === 0) return;
+
+        const clampedIndex = Math.max(0, Math.min(index, elements.length - 1));
+        setFocusedIndex(clampedIndex);
+
+        const element = elements[clampedIndex];
+        if (element) {
+          element.focus({ preventScroll: false });
+          element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }, [getFocusableElements]);
+
+      // Navigate to next/previous element
+      const navigate = useCallback((direction) => {
+        const elements = getFocusableElements();
+        if (elements.length === 0) return;
+
+        const currentElement = document.activeElement;
+        const currentIndex = elements.indexOf(currentElement);
+
+        let newIndex;
+        if (currentIndex === -1) {
+          newIndex = 0;
+        } else if (direction === 'next') {
+          newIndex = (currentIndex + 1) % elements.length;
+        } else if (direction === 'prev') {
+          newIndex = (currentIndex - 1 + elements.length) % elements.length;
+        } else if (direction === 'up' || direction === 'down') {
+          // For up/down, find element in same column or closest vertically
+          const currentRect = currentElement.getBoundingClientRect();
+          const candidates = elements.filter((el, idx) => {
+            if (idx === currentIndex) return false;
+            const rect = el.getBoundingClientRect();
+            const verticalMatch = direction === 'up'
+              ? rect.bottom <= currentRect.top
+              : rect.top >= currentRect.bottom;
+            // Allow some horizontal tolerance
+            const horizontalOverlap =
+              (rect.left < currentRect.right + 50) &&
+              (rect.right > currentRect.left - 50);
+            return verticalMatch && horizontalOverlap;
+          });
+
+          if (candidates.length > 0) {
+            // Find closest one
+            candidates.sort((a, b) => {
+              const aRect = a.getBoundingClientRect();
+              const bRect = b.getBoundingClientRect();
+              const aDist = Math.abs(aRect.top - currentRect.top);
+              const bDist = Math.abs(bRect.top - currentRect.top);
+              return aDist - bDist;
+            });
+            newIndex = elements.indexOf(candidates[0]);
+          } else {
+            // Fall back to linear navigation
+            newIndex = direction === 'up'
+              ? (currentIndex - 1 + elements.length) % elements.length
+              : (currentIndex + 1) % elements.length;
+          }
+        } else if (direction === 'left' || direction === 'right') {
+          // For left/right, find element in same row or closest horizontally
+          const currentRect = currentElement.getBoundingClientRect();
+          const candidates = elements.filter((el, idx) => {
+            if (idx === currentIndex) return false;
+            const rect = el.getBoundingClientRect();
+            const horizontalMatch = direction === 'left'
+              ? rect.right <= currentRect.left
+              : rect.left >= currentRect.right;
+            // Allow some vertical tolerance for same row
+            const verticalOverlap =
+              Math.abs(rect.top - currentRect.top) < currentRect.height;
+            return horizontalMatch && verticalOverlap;
+          });
+
+          if (candidates.length > 0) {
+            candidates.sort((a, b) => {
+              const aRect = a.getBoundingClientRect();
+              const bRect = b.getBoundingClientRect();
+              const aDist = Math.abs(aRect.left - currentRect.left);
+              const bDist = Math.abs(bRect.left - currentRect.left);
+              return aDist - bDist;
+            });
+            newIndex = elements.indexOf(candidates[0]);
+          } else {
+            // Fall back to prev/next
+            newIndex = direction === 'left'
+              ? (currentIndex - 1 + elements.length) % elements.length
+              : (currentIndex + 1) % elements.length;
+          }
+        }
+
+        if (newIndex !== undefined) {
+          focusElement(newIndex);
+        }
+      }, [getFocusableElements, focusElement]);
+
+      // Tab switching
+      const tabIds = ['cal', 'wgt', 'gym', 'set'];
+      const switchTab = useCallback((tabIndex) => {
+        if (tabIndex >= 0 && tabIndex < tabIds.length) {
+          setActiveTab(tabIds[tabIndex]);
+          // Focus first element in new tab after render
+          setTimeout(() => focusElement(0), 100);
+        }
+      }, [setActiveTab, focusElement]);
+
+      // Check if any modal is open
+      const isModalOpen = useCallback(() => {
+        return Object.values(modals).some(isOpen => isOpen);
+      }, [modals]);
+
+      // Handle keydown events
+      useEffect(() => {
+        const handleKeyDown = (e) => {
+          // Enable keyboard mode on any key press
+          if (!isKeyboardMode) {
+            setIsKeyboardMode(true);
+            document.body.classList.remove('using-mouse');
+          }
+
+          // Number keys 1-4 for tab switching (only when no modal is open)
+          if (e.key >= '1' && e.key <= '4' && !isModalOpen() && !e.target.matches('input, textarea')) {
+            e.preventDefault();
+            switchTab(parseInt(e.key) - 1);
+            return;
+          }
+
+          // Arrow key navigation (D-pad)
+          if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+            e.preventDefault();
+            const direction = e.key.replace('Arrow', '').toLowerCase();
+            navigate(direction);
+            return;
+          }
+
+          // Enter key - activate focused element
+          if (e.key === 'Enter') {
+            const activeEl = document.activeElement;
+            if (activeEl && activeEl !== document.body) {
+              // Don't prevent default for inputs/forms
+              if (!activeEl.matches('input, textarea, select')) {
+                e.preventDefault();
+                activeEl.click();
+              }
+            }
+            return;
+          }
+
+          // Escape or Backspace - close modals or go back
+          if (e.key === 'Escape' || (e.key === 'Backspace' && !e.target.matches('input, textarea'))) {
+            if (e.key === 'Backspace') {
+              e.preventDefault();
+            }
+            // This will be handled by individual modal close handlers
+            // Trigger a custom event for modals to listen to
+            window.dispatchEvent(new CustomEvent('navback'));
+            return;
+          }
+
+          // Tab key - standard navigation
+          if (e.key === 'Tab') {
+            // Let default tab behavior work, but track it
+            setTimeout(() => {
+              const elements = getFocusableElements();
+              const idx = elements.indexOf(document.activeElement);
+              if (idx !== -1) setFocusedIndex(idx);
+            }, 0);
+            return;
+          }
+        };
+
+        const handleMouseDown = () => {
+          setIsKeyboardMode(false);
+          document.body.classList.add('using-mouse');
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('mousedown', handleMouseDown);
+        window.addEventListener('touchstart', handleMouseDown);
+
+        return () => {
+          window.removeEventListener('keydown', handleKeyDown);
+          window.removeEventListener('mousedown', handleMouseDown);
+          window.removeEventListener('touchstart', handleMouseDown);
+        };
+      }, [navigate, switchTab, isModalOpen, isKeyboardMode, getFocusableElements]);
+
+      // Focus first element when tab changes
+      useEffect(() => {
+        if (isKeyboardMode) {
+          setTimeout(() => focusElement(0), 100);
+        }
+      }, [activeTab, isKeyboardMode, focusElement]);
+
+      const contextValue = {
+        focusedIndex,
+        isKeyboardMode,
+        navigate,
+        focusElement,
+        switchTab,
+        containerRef
+      };
+
+      return (
+        <KeyboardNavContext.Provider value={contextValue}>
+          <div ref={containerRef} className="keyboard-nav-container">
+            {children}
+          </div>
+        </KeyboardNavContext.Provider>
+      );
+    }
+
+    // Navigation Hint Bar Component (shows key hints at bottom)
+    function NavHintBar({ showTabHints = true }) {
+      return (
+        <div className="nav-hint-bar" aria-hidden="true">
+          <div className="nav-hint">
+            <kbd>↑↓←→</kbd>
+            <span>Navigate</span>
+          </div>
+          <div className="nav-hint">
+            <kbd>OK</kbd>
+            <span>Select</span>
+          </div>
+          <div className="nav-hint">
+            <kbd>Back</kbd>
+            <span>Close</span>
+          </div>
+          {showTabHints && (
+            <div className="nav-hint">
+              <kbd>1-4</kbd>
+              <span>Tabs</span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // Error boundary component
     class ErrorBoundary extends React.Component {
       constructor(props) {
@@ -354,7 +728,7 @@
     try {
       const __Component__ = function FitnessTracker() {
   const [activeTab, setActiveTab] = useState('gym');
-  
+
   const loadData = (key, defaultValue) => {
     try {
       const saved = localStorage.getItem(key);
@@ -663,18 +1037,18 @@
     }
   };
 
-  const Stepper = ({ value, onChange, min = 0, max = 999, step = 1, big = 5, plates = null }) => (
-    <div className="flex items-center justify-center gap-1">
+  const Stepper = ({ value, onChange, min = 0, max = 999, step = 1, big = 5, plates = null, label = 'value' }) => (
+    <div className="flex items-center justify-center gap-1" role="group" aria-label={`Adjust ${label}`}>
       {plates && plates.slice().reverse().map(p => (
-        <button key={`minus-${p}`} onClick={() => onChange(Math.max(min, value - p))} className="bg-purple-700 rounded-lg py-2 px-2 text-sm font-bold active:bg-purple-500">{p}</button>
+        <button key={`minus-${p}`} onClick={() => onChange(Math.max(min, value - p))} className="bg-purple-700 rounded-lg py-2 px-2 text-sm font-bold active:bg-purple-500" aria-label={`Decrease by ${p}`} data-nav="stepper">-{p}</button>
       ))}
-      {!plates && <button onClick={() => onChange(Math.max(min, value - big))} className="bg-gray-700 rounded-lg py-2 px-2 text-sm font-bold active:bg-gray-600">{big}</button>}
-      <button onClick={() => onChange(Math.max(min, value - step))} className="bg-gray-700 rounded-lg py-2 px-3 text-lg font-bold active:bg-gray-600">−</button>
-      <div className="bg-gray-900 rounded-lg py-2 px-2 min-w-12 text-center text-xl font-bold">{value}</div>
-      <button onClick={() => onChange(Math.min(max, value + step))} className="bg-gray-700 rounded-lg py-2 px-3 text-lg font-bold active:bg-gray-600">+</button>
-      {!plates && <button onClick={() => onChange(Math.min(max, value + big))} className="bg-gray-700 rounded-lg py-2 px-2 text-sm font-bold active:bg-gray-600">{big}</button>}
+      {!plates && <button onClick={() => onChange(Math.max(min, value - big))} className="bg-gray-700 rounded-lg py-2 px-2 text-sm font-bold active:bg-gray-600" aria-label={`Decrease by ${big}`} data-nav="stepper">-{big}</button>}
+      <button onClick={() => onChange(Math.max(min, value - step))} className="bg-gray-700 rounded-lg py-2 px-3 text-lg font-bold active:bg-gray-600" aria-label={`Decrease by ${step}`} data-nav="stepper">−</button>
+      <div className="bg-gray-900 rounded-lg py-2 px-2 min-w-12 text-center text-xl font-bold" aria-live="polite" aria-label={`Current ${label}: ${value}`}>{value}</div>
+      <button onClick={() => onChange(Math.min(max, value + step))} className="bg-gray-700 rounded-lg py-2 px-3 text-lg font-bold active:bg-gray-600" aria-label={`Increase by ${step}`} data-nav="stepper">+</button>
+      {!plates && <button onClick={() => onChange(Math.min(max, value + big))} className="bg-gray-700 rounded-lg py-2 px-2 text-sm font-bold active:bg-gray-600" aria-label={`Increase by ${big}`} data-nav="stepper">+{big}</button>}
       {plates && plates.map(p => (
-        <button key={`plus-${p}`} onClick={() => onChange(Math.min(max, value + p))} className="bg-purple-700 rounded-lg py-2 px-2 text-sm font-bold active:bg-purple-500">{p}</button>
+        <button key={`plus-${p}`} onClick={() => onChange(Math.min(max, value + p))} className="bg-purple-700 rounded-lg py-2 px-2 text-sm font-bold active:bg-purple-500" aria-label={`Increase by ${p}`} data-nav="stepper">+{p}</button>
       ))}
     </div>
   );
@@ -807,41 +1181,90 @@
   const [timCategory, setTimCategory] = useState('Coffee');
   const [selectedTimItem, setSelectedTimItem] = useState(null);
 
+  // ============================================
+  // DUMBPHONE KEYBOARD NAVIGATION HANDLERS
+  // ============================================
+
+  // Handle back/escape key for closing modals
+  const handleNavBack = useCallback(() => {
+    // Priority order: close innermost modal first
+    if (showAddSet !== null) {
+      setShowAddSet(null);
+    } else if (showExercisePicker) {
+      setShowExercisePicker(false);
+    } else if (viewingSession) {
+      setViewingSession(null);
+    } else if (showAddMeal) {
+      setShowAddMeal(false);
+      setNewMeal({ name: '', calories: 300 });
+      setSelectedTimItem(null);
+      setFoodSource('custom');
+    } else if (showAddWeight) {
+      setShowAddWeight(false);
+    }
+  }, [showAddSet, showExercisePicker, viewingSession, showAddMeal, showAddWeight]);
+
+  // Listen for navback event (triggered by Escape/Backspace)
+  useEffect(() => {
+    window.addEventListener('navback', handleNavBack);
+    return () => window.removeEventListener('navback', handleNavBack);
+  }, [handleNavBack]);
+
+  // Modal state object for keyboard nav provider
+  const modalStates = {
+    showAddMeal,
+    showAddWeight,
+    showExercisePicker,
+    showAddSet: showAddSet !== null,
+    viewingSession: viewingSession !== null
+  };
+
   return (
-    <div className="min-h-screen bg-black text-white pb-4">
+    <KeyboardNavProvider activeTab={activeTab} setActiveTab={setActiveTab} modals={modalStates}>
+    <div className="min-h-screen bg-black text-white pb-nav">
+      {/* Skip link for accessibility */}
+      <a href="#main-content" className="skip-link">Skip to main content</a>
+
       {/* Native Install Banner (Chrome's beforeinstallprompt fired) */}
       {showInstallPrompt && !isStandalone && (
         <div className="bg-purple-600 p-3 flex justify-between items-center">
           <span className="text-sm font-bold">📲 Add to Home Screen</span>
           <div className="flex gap-2">
-            <button onClick={dismissInstall} className="bg-gray-800 rounded px-3 py-1 text-sm">Later</button>
-            <button onClick={installApp} className="bg-white text-purple-600 rounded px-3 py-1 text-sm font-bold">Install</button>
+            <button onClick={dismissInstall} className="bg-gray-800 rounded px-3 py-1 text-sm" aria-label="Install later">Later</button>
+            <button onClick={installApp} className="bg-white text-purple-600 rounded px-3 py-1 text-sm font-bold" aria-label="Install app">Install</button>
           </div>
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="grid grid-cols-4 gap-1 p-1 bg-gray-900 sticky top-0 z-10">
-        {[{ id: 'cal', icon: '🔥', label: 'Calories' }, { id: 'wgt', icon: '⚖️', label: 'Weight' }, { id: 'gym', icon: '💪', label: 'Gym' }, { id: 'set', icon: '⚙️', label: 'Settings' }].map(tab => (
+      {/* Tabs - Number keys 1-4 for quick switching */}
+      <nav className="grid grid-cols-4 gap-1 p-1 bg-gray-900 sticky top-0 z-10" role="tablist" aria-label="Main navigation">
+        {[{ id: 'cal', icon: '🔥', label: 'Calories', key: '1' }, { id: 'wgt', icon: '⚖️', label: 'Weight', key: '2' }, { id: 'gym', icon: '💪', label: 'Gym', key: '3' }, { id: 'set', icon: '⚙️', label: 'Settings', key: '4' }].map((tab, index) => (
           <button
             key={tab.id}
             onClick={() => { setActiveTab(tab.id); setViewingSession(null); }}
             className={`py-2 rounded-lg relative flex flex-col items-center ${activeTab === tab.id ? 'bg-purple-600' : 'bg-gray-800'}`}
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`panel-${tab.id}`}
+            tabIndex={activeTab === tab.id ? 0 : -1}
+            data-nav="tab"
+            aria-label={`${tab.label} tab (press ${tab.key})`}
           >
-            <span className="text-2xl">{tab.icon}</span>
+            <span className="text-2xl" aria-hidden="true">{tab.icon}</span>
             <span className="text-xs mt-1 opacity-80">{tab.label}</span>
-            {tab.id === 'gym' && activeWorkout && <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />}
+            <span className="text-xs opacity-50">({tab.key})</span>
+            {tab.id === 'gym' && activeWorkout && <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" aria-label="Workout in progress" />}
           </button>
         ))}
-      </div>
+      </nav>
 
-      <div className="p-2">
+      <main id="main-content" className="p-2" role="main">
         {/* CALORIES */}
         {activeTab === 'cal' && (
           <div className="space-y-2">
             {/* Date Navigator */}
-            <div className="flex items-center justify-between bg-gray-800 rounded-xl p-2">
-              <button onClick={() => changeDate(-1)} className="bg-gray-700 rounded-lg py-2 px-3 text-lg font-bold">←</button>
+            <div className="flex items-center justify-between bg-gray-800 rounded-xl p-2" role="group" aria-label="Date navigation">
+              <button onClick={() => changeDate(-1)} className="bg-gray-700 rounded-lg py-2 px-3 text-lg font-bold" aria-label="Previous day" data-nav="date">←</button>
               <div className="text-center">
                 <div className="font-bold">{formatDisplayDate(selectedDate)}</div>
                 {!isToday() && <button onClick={() => {
@@ -849,11 +1272,11 @@
                   setSelectedDate(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`);
                 }} className="text-xs text-purple-400 bg-transparent">go to today</button>}
               </div>
-              <button onClick={() => changeDate(1)} className="bg-gray-700 rounded-lg py-2 px-3 text-lg font-bold" disabled={isToday()}>→</button>
+              <button onClick={() => changeDate(1)} className="bg-gray-700 rounded-lg py-2 px-3 text-lg font-bold" disabled={isToday()} aria-label="Next day" data-nav="date">→</button>
             </div>
 
             {!showAddMeal ? (
-              <button onClick={() => setShowAddMeal(true)} className="w-full bg-purple-600 rounded-xl py-4 text-xl font-bold">+ ADD MEAL</button>
+              <button onClick={() => setShowAddMeal(true)} className="w-full bg-purple-600 rounded-xl py-4 text-xl font-bold" aria-label="Add a new meal" data-nav="action">+ ADD MEAL</button>
             ) : (
               <div className="bg-gray-800 rounded-xl p-3 space-y-2">
                 {/* Toggle between Custom and Tim Hortons */}
@@ -1002,7 +1425,7 @@
             </div>
 
             {!showAddWeight ? (
-              <button onClick={() => { setNewWeight(weightUnit === 'lbs' ? Math.round(kgToLbs(currentWeight || 70)) : (currentWeight || 70)); setShowAddWeight(true); }} className="w-full bg-blue-600 rounded-xl py-4 text-xl font-bold">+ LOG WEIGHT</button>
+              <button onClick={() => { setNewWeight(weightUnit === 'lbs' ? Math.round(kgToLbs(currentWeight || 70)) : (currentWeight || 70)); setShowAddWeight(true); }} className="w-full bg-blue-600 rounded-xl py-4 text-xl font-bold" aria-label="Log your weight" data-nav="action">+ LOG WEIGHT</button>
             ) : (
               <div className="bg-gray-800 rounded-xl p-3 space-y-3">
                 <div className="text-center text-gray-400 text-sm">Weight ({weightUnit})</div>
@@ -1082,7 +1505,7 @@
               </>
             ) : !activeWorkout ? (
               <>
-                <button onClick={startWorkout} className="w-full bg-green-600 rounded-xl py-6 text-2xl font-bold">🏋️ START</button>
+                <button onClick={startWorkout} className="w-full bg-green-600 rounded-xl py-6 text-2xl font-bold" aria-label="Start a new workout" data-nav="action">🏋️ START</button>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="bg-purple-600 rounded-xl p-2 text-center">
                     <div className="text-2xl font-bold">{gymSessions.length}</div>
@@ -1135,7 +1558,7 @@
                     <button onClick={() => setShowExercisePicker(false)} className="w-full bg-gray-600 rounded-xl py-3 font-bold">CANCEL</button>
                   </div>
                 ) : (
-                  <button onClick={() => setShowExercisePicker(true)} className="w-full bg-purple-600 rounded-xl py-4 text-lg font-bold">+ EXERCISE</button>
+                  <button onClick={() => setShowExercisePicker(true)} className="w-full bg-purple-600 rounded-xl py-4 text-lg font-bold" aria-label="Add an exercise to your workout" data-nav="action">+ EXERCISE</button>
                 )}
 
                 <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -1218,8 +1641,8 @@
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => setActiveWorkout(null)} className="bg-gray-600 rounded-xl py-4 font-bold">CANCEL</button>
-                  <button onClick={endWorkout} className="bg-red-600 rounded-xl py-4 font-bold">✓ DONE</button>
+                  <button onClick={() => setActiveWorkout(null)} className="bg-gray-600 rounded-xl py-4 font-bold" aria-label="Cancel workout" data-nav="action">CANCEL</button>
+                  <button onClick={endWorkout} className="bg-red-600 rounded-xl py-4 font-bold" aria-label="End and save workout" data-nav="action">✓ DONE</button>
                 </div>
               </>
             )}
@@ -1434,8 +1857,12 @@
             </div>
           </div>
         )}
-      </div>
+      </main>
+
+      {/* Navigation hint bar for dumbphone users */}
+      <NavHintBar showTabHints={!showAddMeal && !showAddWeight && !showExercisePicker && !viewingSession} />
     </div>
+    </KeyboardNavProvider>
   );
 }
 
