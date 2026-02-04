@@ -15,12 +15,24 @@
   <link rel="manifest" href="./manifest.json">
   
   <title>Fitness Tracker</title>
-  
-  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide-react@0.263.1/dist/umd/lucide-react.min.js"></script>
+
+  <!-- Content Security Policy -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self';">
+
+  <!-- Security Headers Note: In production, set these via server headers:
+       X-Content-Type-Options: nosniff
+       X-Frame-Options: DENY
+       Referrer-Policy: strict-origin-when-cross-origin
+  -->
+
+  <!-- External Scripts - Using pinned versions with crossorigin for CORS -->
+  <!-- Note: Generate SRI hashes before production deployment using: -->
+  <!-- curl -sL [URL] | openssl dgst -sha384 -binary | openssl base64 -A -->
+  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.tailwindcss.com?plugins=forms" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/lucide-react@0.263.1/dist/umd/lucide-react.min.js" crossorigin="anonymous"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: system-ui, -apple-system, sans-serif; }
@@ -272,7 +284,7 @@
   const addMeal = () => {
     const cals = typeof newMeal.calories === 'string' ? parseInt(newMeal.calories) : newMeal.calories;
     if (newMeal.name && cals > 0) {
-      setMeals([{ id: Date.now().toString(), name: newMeal.name, calories: cals, date: selectedDate }, ...meals]);
+      setMeals([{ id: crypto.randomUUID(), name: newMeal.name, calories: cals, date: selectedDate }, ...meals]);
       setNewMeal({ name: '', calories: 300 });
       setShowAddMeal(false);
     }
@@ -281,14 +293,14 @@
   const addWeight = () => {
     const today = new Date();
     const date = `${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}`;
-    setWeightEntries([...weightEntries, { id: Date.now().toString(), weight: newWeight, date }]);
+    setWeightEntries([...weightEntries, { id: crypto.randomUUID(), weight: newWeight, date }]);
     setShowAddWeight(false);
   };
 
   const startWorkout = () => {
     const now = new Date();
     setActiveWorkout({
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       startTime: now.toISOString(),
       date: now.toLocaleDateString(),
       time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -307,7 +319,7 @@
   const addExercise = (name) => {
     setActiveWorkout({
       ...activeWorkout,
-      exercises: [...activeWorkout.exercises, { id: Date.now().toString(), name, sets: [] }]
+      exercises: [...activeWorkout.exercises, { id: crypto.randomUUID(), name, sets: [] }]
     });
     setShowExercisePicker(false);
   };
@@ -318,7 +330,7 @@
       ...activeWorkout,
       exercises: activeWorkout.exercises.map(ex =>
         ex.id === exerciseId
-          ? { ...ex, sets: [...ex.sets, { id: Date.now().toString(), reps: newSet.reps, weight: weightInKg }] }
+          ? { ...ex, sets: [...ex.sets, { id: crypto.randomUUID(), reps: newSet.reps, weight: weightInKg }] }
           : ex
       )
     });
@@ -330,7 +342,7 @@
       ...activeWorkout,
       exercises: activeWorkout.exercises.map(ex =>
         ex.id === exerciseId
-          ? { ...ex, sets: [...ex.sets, { id: Date.now().toString(), duration: newCardioSet.duration, calories: newCardioSet.calories, isCardio: true }] }
+          ? { ...ex, sets: [...ex.sets, { id: crypto.randomUUID(), duration: newCardioSet.duration, calories: newCardioSet.calories, isCardio: true }] }
           : ex
       )
     });
@@ -353,8 +365,8 @@
   const quickRepeat = (exerciseId, lastSet) => {
     if (lastSet) {
       const newSetData = lastSet.isCardio
-        ? { id: Date.now().toString(), duration: lastSet.duration, calories: lastSet.calories, isCardio: true }
-        : { id: Date.now().toString(), reps: lastSet.reps, weight: lastSet.weight };
+        ? { id: crypto.randomUUID(), duration: lastSet.duration, calories: lastSet.calories, isCardio: true }
+        : { id: crypto.randomUUID(), reps: lastSet.reps, weight: lastSet.weight };
       setActiveWorkout({
         ...activeWorkout,
         exercises: activeWorkout.exercises.map(ex =>
@@ -368,7 +380,7 @@
 
   const addTri = () => {
     if (newTri.distance > 0) {
-      setTriSessions([{ id: Date.now().toString(), ...newTri }, ...triSessions]);
+      setTriSessions([{ id: crypto.randomUUID(), ...newTri }, ...triSessions]);
       setNewTri({ type: 'swim', distance: 0 });
       setShowAddTri(false);
     }
@@ -738,7 +750,7 @@
                     const today = new Date();
                     const date = `${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}`;
                     const weightInKg = weightUnit === 'lbs' ? lbsToKg(newWeight) : newWeight;
-                    setWeightEntries([...weightEntries, { id: Date.now().toString(), weight: weightInKg, date }]);
+                    setWeightEntries([...weightEntries, { id: crypto.randomUUID(), weight: weightInKg, date }]);
                     setShowAddWeight(false);
                   }} className="bg-green-600 rounded-xl py-3 font-bold">SAVE</button>
                 </div>
@@ -994,16 +1006,102 @@
                     const reader = new FileReader();
                     reader.onload = (ev) => {
                       try {
+                        // Limit file size (5MB max)
+                        if (ev.target.result.length > 5 * 1024 * 1024) {
+                          throw new Error('File too large (max 5MB)');
+                        }
+
                         const data = JSON.parse(ev.target.result);
-                        if (data.meals) setMeals(data.meals);
-                        if (data.calorieGoal) setCalorieGoal(data.calorieGoal);
-                        if (data.weightEntries) setWeightEntries(data.weightEntries);
-                        if (data.goalWeight) setGoalWeight(data.goalWeight);
-                        if (data.weightUnit) setWeightUnit(data.weightUnit);
-                        if (data.gymSessions) setGymSessions(data.gymSessions);
+
+                        // Validate data is an object
+                        if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+                          throw new Error('Invalid data format');
+                        }
+
+                        // Sanitize string helper
+                        const sanitizeStr = (s, maxLen = 100) =>
+                          typeof s === 'string' ? s.slice(0, maxLen).replace(/[<>]/g, '') : '';
+
+                        // Validate and sanitize meals
+                        if (data.meals && Array.isArray(data.meals)) {
+                          const validMeals = data.meals.slice(0, 10000).filter(m =>
+                            m && typeof m === 'object' &&
+                            typeof m.id === 'string' &&
+                            typeof m.name === 'string' &&
+                            typeof m.calories === 'number' && m.calories >= 0 && m.calories <= 50000
+                          ).map(m => ({
+                            id: sanitizeStr(m.id, 50),
+                            name: sanitizeStr(m.name, 100),
+                            calories: Math.floor(m.calories),
+                            date: sanitizeStr(m.date || '', 20)
+                          }));
+                          setMeals(validMeals);
+                        }
+
+                        // Validate calorieGoal
+                        if (typeof data.calorieGoal === 'number' && data.calorieGoal >= 500 && data.calorieGoal <= 10000) {
+                          setCalorieGoal(Math.floor(data.calorieGoal));
+                        }
+
+                        // Validate weightEntries
+                        if (data.weightEntries && Array.isArray(data.weightEntries)) {
+                          const validWeights = data.weightEntries.slice(0, 10000).filter(w =>
+                            w && typeof w === 'object' &&
+                            typeof w.id === 'string' &&
+                            typeof w.weight === 'number' && w.weight >= 20 && w.weight <= 500
+                          ).map(w => ({
+                            id: sanitizeStr(w.id, 50),
+                            weight: Number(w.weight.toFixed(2)),
+                            date: sanitizeStr(w.date || '', 20)
+                          }));
+                          setWeightEntries(validWeights);
+                        }
+
+                        // Validate goalWeight
+                        if (typeof data.goalWeight === 'number' && data.goalWeight >= 20 && data.goalWeight <= 500) {
+                          setGoalWeight(Number(data.goalWeight.toFixed(2)));
+                        }
+
+                        // Validate weightUnit
+                        if (data.weightUnit === 'kg' || data.weightUnit === 'lbs') {
+                          setWeightUnit(data.weightUnit);
+                        }
+
+                        // Validate gymSessions (complex nested structure)
+                        if (data.gymSessions && Array.isArray(data.gymSessions)) {
+                          const validSessions = data.gymSessions.slice(0, 1000).filter(s =>
+                            s && typeof s === 'object' &&
+                            typeof s.id === 'string' &&
+                            Array.isArray(s.exercises)
+                          ).map(s => ({
+                            id: sanitizeStr(s.id, 50),
+                            date: sanitizeStr(s.date || '', 20),
+                            time: sanitizeStr(s.time || '', 10),
+                            duration: typeof s.duration === 'number' ? Math.min(Math.max(0, Math.floor(s.duration)), 600) : 0,
+                            startTime: sanitizeStr(s.startTime || '', 30),
+                            exercises: (s.exercises || []).slice(0, 50).filter(ex =>
+                              ex && typeof ex === 'object' && typeof ex.name === 'string'
+                            ).map(ex => ({
+                              id: sanitizeStr(ex.id || crypto.randomUUID(), 50),
+                              name: sanitizeStr(ex.name, 50),
+                              sets: (ex.sets || []).slice(0, 100).filter(set =>
+                                set && typeof set === 'object'
+                              ).map(set => ({
+                                id: sanitizeStr(set.id || crypto.randomUUID(), 50),
+                                reps: typeof set.reps === 'number' ? Math.min(Math.max(0, Math.floor(set.reps)), 1000) : 0,
+                                weight: typeof set.weight === 'number' ? Math.min(Math.max(0, set.weight), 1000) : 0,
+                                duration: typeof set.duration === 'number' ? Math.min(Math.max(0, Math.floor(set.duration)), 600) : undefined,
+                                calories: typeof set.calories === 'number' ? Math.min(Math.max(0, Math.floor(set.calories)), 10000) : undefined,
+                                isCardio: set.isCardio === true
+                              }))
+                            }))
+                          }));
+                          setGymSessions(validSessions);
+                        }
+
                         alert('Data imported successfully!');
                       } catch (err) {
-                        alert('Error importing data: ' + err.message);
+                        alert('Error importing data: Invalid file format');
                       }
                     };
                     reader.readAsText(file);
@@ -1084,10 +1182,16 @@
           )
         );
       } else {
-        document.getElementById('root').innerHTML = '<div class="error-display">No component found to render. Make sure to export default your component.</div>';
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error-display';
+        errorDiv.textContent = 'No component found to render. Make sure to export default your component.';
+        document.getElementById('root').replaceChildren(errorDiv);
       }
     } catch (err) {
-      document.getElementById('root').innerHTML = '<div class="error-display">Error: ' + err.message + '</div>';
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'error-display';
+      errorDiv.textContent = 'Error: ' + (err.message || 'Unknown error');
+      document.getElementById('root').replaceChildren(errorDiv);
     }
   </script>
 </body>
