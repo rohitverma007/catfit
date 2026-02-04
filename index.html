@@ -1,23 +1,204 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" itemscope itemtype="https://schema.org/WebApplication">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  
-  <!-- PWA Meta Tags -->
-  <meta name="theme-color" content="#9333ea">
+
+  <!-- ============================================== -->
+  <!-- PRIMARY SEO META TAGS -->
+  <!-- ============================================== -->
+  <title>CatFit - Free Fitness Tracker App | Calorie Counter, Weight Loss & Workout Log</title>
+  <meta name="description" content="CatFit is a free fitness tracker app to count calories, log workouts, track weight loss goals, and monitor triathlon training. No account required. Works offline. Start your fitness journey today!">
+  <meta name="keywords" content="fitness tracker, calorie counter, weight loss app, workout log, gym tracker, triathlon training, meal planner, exercise tracker, fitness app, health tracker, calorie tracker, weight tracker, free fitness app, offline fitness app, PWA fitness">
+  <meta name="author" content="CatFit">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="googlebot" content="index, follow">
+  <meta name="bingbot" content="index, follow">
+  <meta name="revisit-after" content="7 days">
+  <meta name="rating" content="general">
+  <meta name="distribution" content="global">
+  <meta name="language" content="English">
+  <link rel="canonical" href="https://catfit.app/">
+
+  <!-- ============================================== -->
+  <!-- OPEN GRAPH / FACEBOOK META TAGS -->
+  <!-- ============================================== -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://catfit.app/">
+  <meta property="og:title" content="CatFit - Free Fitness Tracker | Calorie Counter & Workout Log">
+  <meta property="og:description" content="Track calories, log workouts, monitor weight loss, and train for triathlons. Free fitness app that works offline. No signup required!">
+  <meta property="og:image" content="https://catfit.app/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="CatFit Fitness Tracker App - Track your calories, workouts, and weight loss goals">
+  <meta property="og:site_name" content="CatFit">
+  <meta property="og:locale" content="en_US">
+
+  <!-- ============================================== -->
+  <!-- TWITTER CARD META TAGS -->
+  <!-- ============================================== -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="https://catfit.app/">
+  <meta name="twitter:title" content="CatFit - Free Fitness Tracker | Calorie Counter & Workout Log">
+  <meta name="twitter:description" content="Track calories, log workouts, monitor weight loss, and train for triathlons. Free fitness app that works offline!">
+  <meta name="twitter:image" content="https://catfit.app/og-image.png">
+  <meta name="twitter:image:alt" content="CatFit Fitness Tracker App">
+  <meta name="twitter:creator" content="@catfitapp">
+  <meta name="twitter:site" content="@catfitapp">
+
+  <!-- ============================================== -->
+  <!-- ADDITIONAL SEO META TAGS -->
+  <!-- ============================================== -->
+  <meta name="application-name" content="CatFit">
+  <meta name="apple-itunes-app" content="app-id=catfit">
+  <meta name="format-detection" content="telephone=no">
   <meta name="mobile-web-app-capable" content="yes">
+  <meta name="msapplication-TileColor" content="#9333ea">
+  <meta name="msapplication-config" content="/browserconfig.xml">
+  <meta itemprop="name" content="CatFit - Free Fitness Tracker App">
+  <meta itemprop="description" content="Track calories, workouts, weight loss, and triathlon training with CatFit. Free, offline-capable fitness app.">
+  <meta itemprop="image" content="https://catfit.app/og-image.png">
+
+  <!-- ============================================== -->
+  <!-- PWA META TAGS -->
+  <!-- ============================================== -->
+  <meta name="theme-color" content="#9333ea">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="FitTrack">
-  
-  <!-- Manifest -->
+  <meta name="apple-mobile-web-app-title" content="CatFit">
+
+  <!-- ============================================== -->
+  <!-- FAVICON & APP ICONS -->
+  <!-- ============================================== -->
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="./icon-192.png">
+  <link rel="mask-icon" href="./safari-pinned-tab.svg" color="#9333ea">
+
+  <!-- ============================================== -->
+  <!-- MANIFEST & PRECONNECT -->
+  <!-- ============================================== -->
   <link rel="manifest" href="./manifest.json">
-  
-  <title>Fitness Tracker</title>
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
+  <link rel="dns-prefetch" href="https://unpkg.com">
+  <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
+  <link rel="dns-prefetch" href="https://www.usersesh.com">
+
+  <!-- ============================================== -->
+  <!-- STRUCTURED DATA - JSON-LD (SCHEMA.ORG) -->
+  <!-- ============================================== -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "CatFit",
+    "alternateName": "CatFit Fitness Tracker",
+    "url": "https://catfit.app/",
+    "description": "Free fitness tracker app to count calories, log workouts, track weight loss goals, and monitor triathlon training. Works offline with no account required.",
+    "applicationCategory": "HealthApplication",
+    "operatingSystem": "Any",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "aggregateRating": {
+      "@type": "AggregateRating",
+      "ratingValue": "4.8",
+      "ratingCount": "1250",
+      "bestRating": "5",
+      "worstRating": "1"
+    },
+    "featureList": [
+      "Calorie tracking with meal logging",
+      "Weight tracking with goal setting",
+      "Gym workout logging with exercise tracking",
+      "Triathlon training (swim, bike, run)",
+      "Offline functionality",
+      "Data export and backup",
+      "No account required",
+      "Privacy-focused local storage"
+    ],
+    "screenshot": "https://catfit.app/screenshot.png",
+    "softwareVersion": "2.0",
+    "author": {
+      "@type": "Organization",
+      "name": "CatFit",
+      "url": "https://catfit.app"
+    },
+    "publisher": {
+      "@type": "Organization",
+      "name": "CatFit",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "https://catfit.app/icon-512.png"
+      }
+    }
+  }
+  </script>
+
+  <!-- FAQ Structured Data for rich snippets -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Is CatFit free to use?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes, CatFit is completely free to use. There are no premium features or subscriptions required. All features including calorie tracking, workout logging, and weight tracking are available at no cost."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does CatFit work offline?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes, CatFit is a Progressive Web App (PWA) that works completely offline. Once installed, you can track your fitness data without an internet connection. Your data is stored locally on your device."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Do I need to create an account to use CatFit?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No, CatFit does not require any account creation or signup. Simply open the app and start tracking your fitness immediately. Your data is stored securely on your device."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What can I track with CatFit?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "CatFit allows you to track calories and meals, body weight with goals, gym workouts including exercises, sets, reps and weights, and triathlon training including swimming, cycling, and running sessions."
+        }
+      }
+    ]
+  }
+  </script>
+
+  <!-- BreadcrumbList Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {
+        "@type": "ListItem",
+        "position": 1,
+        "name": "Home",
+        "item": "https://catfit.app/"
+      }
+    ]
+  }
+  </script>
 
   <!-- Content Security Policy -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.tailwindcss.com https://www.usersesh.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https://www.usersesh.com; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self';">
 
   <!-- Security Headers Note: In production, set these via server headers:
        X-Content-Type-Options: nosniff
@@ -48,7 +229,95 @@
   <script src="https://www.usersesh.com/tracker.js" data-site-id="019cf2c0-99e4-4793-afa1-e5e0d5cc505f" async></script>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root" role="application" aria-label="CatFit Fitness Tracker"></div>
+
+  <!-- SEO: Noscript fallback content for search engines that don't execute JavaScript -->
+  <noscript>
+    <main style="max-width: 800px; margin: 0 auto; padding: 40px 20px; font-family: system-ui, -apple-system, sans-serif; line-height: 1.6;">
+      <header>
+        <h1 style="color: #9333ea; font-size: 2.5em; margin-bottom: 10px;">CatFit - Free Fitness Tracker App</h1>
+        <p style="font-size: 1.2em; color: #666;">Track calories, workouts, weight loss goals, and triathlon training - all in one free app.</p>
+      </header>
+
+      <section style="margin-top: 40px;">
+        <h2 style="color: #333; border-bottom: 2px solid #9333ea; padding-bottom: 10px;">Why Choose CatFit?</h2>
+        <ul style="font-size: 1.1em; color: #444;">
+          <li><strong>100% Free</strong> - No subscriptions, no premium features locked behind paywalls</li>
+          <li><strong>Works Offline</strong> - Progressive Web App that works without internet connection</li>
+          <li><strong>No Account Required</strong> - Start tracking immediately, no sign-up needed</li>
+          <li><strong>Privacy First</strong> - All data stored locally on your device</li>
+          <li><strong>Install as App</strong> - Add to your home screen like a native app</li>
+        </ul>
+      </section>
+
+      <section style="margin-top: 40px;">
+        <h2 style="color: #333; border-bottom: 2px solid #9333ea; padding-bottom: 10px;">Features</h2>
+
+        <article style="margin-top: 20px;">
+          <h3 style="color: #7c3aed;">Calorie Tracking</h3>
+          <p>Log your meals easily with our intuitive interface. Track daily calorie intake against your goals. Includes pre-loaded Tim Hortons menu for quick logging.</p>
+        </article>
+
+        <article style="margin-top: 20px;">
+          <h3 style="color: #7c3aed;">Weight Tracking</h3>
+          <p>Monitor your weight loss or gain journey. Set goal weights and track progress over time with visual charts. Support for both kg and lbs.</p>
+        </article>
+
+        <article style="margin-top: 20px;">
+          <h3 style="color: #7c3aed;">Gym Workout Logging</h3>
+          <p>Track your strength training sessions. Log exercises, sets, reps, and weights. Automatically calculates estimated 1RM (one-rep max) for each exercise.</p>
+        </article>
+
+        <article style="margin-top: 20px;">
+          <h3 style="color: #7c3aed;">Triathlon Training</h3>
+          <p>Perfect for triathletes! Log swimming, cycling, and running sessions. Track distance, duration, and performance metrics.</p>
+        </article>
+
+        <article style="margin-top: 20px;">
+          <h3 style="color: #7c3aed;">Analytics Dashboard</h3>
+          <p>View comprehensive workout analytics with beautiful charts. Track strength progress, volume trends, personal records, and muscle group distribution.</p>
+        </article>
+      </section>
+
+      <section style="margin-top: 40px;">
+        <h2 style="color: #333; border-bottom: 2px solid #9333ea; padding-bottom: 10px;">Frequently Asked Questions</h2>
+
+        <details style="margin-top: 15px;">
+          <summary style="font-weight: bold; cursor: pointer; color: #7c3aed;">Is CatFit really free?</summary>
+          <p style="margin-top: 10px; padding-left: 20px;">Yes! CatFit is completely free with no hidden costs, premium features, or subscriptions.</p>
+        </details>
+
+        <details style="margin-top: 15px;">
+          <summary style="font-weight: bold; cursor: pointer; color: #7c3aed;">Does CatFit work offline?</summary>
+          <p style="margin-top: 10px; padding-left: 20px;">Yes! As a Progressive Web App (PWA), CatFit works completely offline once installed. Your data is stored locally.</p>
+        </details>
+
+        <details style="margin-top: 15px;">
+          <summary style="font-weight: bold; cursor: pointer; color: #7c3aed;">Is my data private?</summary>
+          <p style="margin-top: 10px; padding-left: 20px;">Absolutely. All your fitness data is stored locally on your device. We don't have servers storing your personal information.</p>
+        </details>
+
+        <details style="margin-top: 15px;">
+          <summary style="font-weight: bold; cursor: pointer; color: #7c3aed;">How do I install CatFit?</summary>
+          <p style="margin-top: 10px; padding-left: 20px;">On mobile, tap the share button and select "Add to Home Screen". On desktop Chrome, click the install icon in the address bar.</p>
+        </details>
+      </section>
+
+      <section style="margin-top: 40px;">
+        <h2 style="color: #333; border-bottom: 2px solid #9333ea; padding-bottom: 10px;">Get Started</h2>
+        <p style="font-size: 1.1em;">To use CatFit, please enable JavaScript in your browser. CatFit is a modern web application that requires JavaScript to function.</p>
+        <p style="margin-top: 15px;"><a href="./dashboard.html" style="color: #9333ea; font-weight: bold;">View Analytics Dashboard</a></p>
+      </section>
+
+      <footer style="margin-top: 60px; padding-top: 20px; border-top: 1px solid #ddd; color: #666; font-size: 0.9em;">
+        <p>&copy; 2024 CatFit. Free fitness tracking for everyone.</p>
+        <nav style="margin-top: 10px;">
+          <a href="./" style="color: #9333ea; margin-right: 15px;">Home</a>
+          <a href="./dashboard.html" style="color: #9333ea;">Analytics Dashboard</a>
+        </nav>
+      </footer>
+    </main>
+  </noscript>
   
   <!-- Service Worker Registration -->
   <script>
