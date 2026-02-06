@@ -1,21 +1,15 @@
 // Vercel Edge Middleware — runs before every request
 // Handles: IP banning, bot detection, rate limiting
 
-// --- Hardcoded banned IPs (known bots) ---
-const HARDCODED_BANNED_IPS = [
-  '112.200.44.44', // Philippines bot — automated Chrome visits every 60s
-];
-
 // --- Banned IPs (from env var) ---
 // Set BANNED_IPS in Vercel dashboard (Settings > Environment Variables)
 // Comma-separated, e.g.: "1.2.3.4,5.6.7.8"
-const BANNED_IPS = new Set([
-  ...HARDCODED_BANNED_IPS,
-  ...(process.env.BANNED_IPS || '')
+const BANNED_IPS = new Set(
+  (process.env.BANNED_IPS || '')
     .split(',')
     .map((ip) => ip.trim())
-    .filter(Boolean),
-]);
+    .filter(Boolean)
+);
 
 // --- Banned User-Agent substrings (case-insensitive) ---
 const BANNED_BOT_PATTERNS = [
@@ -49,7 +43,7 @@ const BANNED_BOT_PATTERNS = [
 // State lives in the edge isolate's memory — effective for bots
 // that repeatedly hit the same edge node (same region).
 const WINDOW_MS = 10 * 60 * 1000; // 10-minute sliding window
-const MAX_PAGE_LOADS = 8; // max HTML page loads per window
+const MAX_PAGE_LOADS = 20; // max HTML page loads per window
 const TEMP_BAN_MS = 30 * 60 * 1000; // 30-minute temp ban once triggered
 
 const ipPageLoads = new Map(); // ip -> number[]  (timestamps)
