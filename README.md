@@ -27,6 +27,7 @@
 
 ## Screenshots
 
+
 <table>
   <tr>
     <td align="center"><strong>Workout Logging</strong></td>
@@ -35,12 +36,14 @@
     <td align="center"><strong>Analytics Dashboard</strong></td>
   </tr>
   <tr>
-    <td><img src="https://catfit.app/og-image.png" alt="CatFit Workout Logging" width="250"></td>
-    <td><img src="https://catfit.app/screenshot.png" alt="CatFit Calorie Tracking" width="250"></td>
-    <td><img src="https://catfit.app/og-image.png" alt="CatFit Weight Tracking" width="250"></td>
-    <td><img src="https://catfit.app/og-dashboard.png" alt="CatFit Analytics Dashboard" width="250"></td>
+    <td><img width="250" alt="Screenshot 2026-02-06 at 3 00 33 PM" src="https://github.com/user-attachments/assets/59905a88-5901-4d84-a05d-faf89f1ab942" /></td>
+    <td><img width="250" alt="Screenshot 2026-02-06 at 3 14 36 PM" src="https://github.com/user-attachments/assets/5cbfd95c-73ba-4fb9-aabf-d27f252a76ea" /></td>
+    <td><img width="250" alt="Screenshot 2026-02-06 at 3 15 37 PM" src="https://github.com/user-attachments/assets/a92168bf-9355-492e-8197-d1d5d3d9a4bb" /></td>
+    <td><img width="250" alt="Screenshot 2026-02-06 at 3 16 53 PM" src="https://github.com/user-attachments/assets/f5846870-da97-4212-b706-cb64215e156e" /></td>
+
   </tr>
 </table>
+
 
 > Visit **[catfitapp.com](https://www.catfitapp.com/)** to try the live app instantly in your browser.
 
@@ -254,18 +257,6 @@ CatFit is a static site — deploy it anywhere:
 | **Any HTTP server** | Copy files to document root |
 
 No build step, no environment variables, no configuration needed.
-
----
-
-## About
-
-CatFit is developed and maintained by **[Vayu Apps](https://www.vayuapps.com/)**, a studio focused on building lightweight, privacy-respecting applications that work for everyone — including users on low-end and feature phone devices.
-
-- **App**: [www.catfitapp.com](https://www.catfitapp.com/)
-- **Developer**: [www.vayuapps.com](https://www.vayuapps.com/)
-- **Twitter**: [@catfitapp](https://twitter.com/catfitapp)
-
----
 
 ## Contributing
 
