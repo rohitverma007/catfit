@@ -2,11 +2,14 @@
 // Handles: IP banning, bot detection, rate-limit headers
 
 // --- Banned IPs ---
-// Add IPs (v4 or v6) to block them at the edge before they hit your site.
-const BANNED_IPS = new Set([
-  // "1.2.3.4",        // example — replace with real IPs
-  // "2001:db8::1",    // IPv6 example
-]);
+// Set BANNED_IPS env var in Vercel dashboard (Settings > Environment Variables)
+// as a comma-separated list, e.g.: "1.2.3.4,5.6.7.8,2001:db8::1"
+const BANNED_IPS = new Set(
+  (process.env.BANNED_IPS || '')
+    .split(',')
+    .map((ip) => ip.trim())
+    .filter(Boolean)
+);
 
 // --- Banned User-Agent substrings (case-insensitive) ---
 // Covers aggressive scrapers, AI crawlers not already in robots.txt, etc.
