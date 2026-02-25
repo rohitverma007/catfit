@@ -916,6 +916,17 @@
   };
   const toKg = (val) => weightUnit === 'lbs' ? lbsToKg(val) : val;
   
+  // Look up the last time a specific exercise was performed across all saved sessions
+  const getLastExerciseStats = (exerciseName) => {
+    for (const session of gymSessions) {
+      const match = session.exercises?.find(ex => ex.name === exerciseName);
+      if (match && match.sets.length > 0) {
+        return { date: session.date, sets: match.sets };
+      }
+    }
+    return null;
+  };
+
   const triStats = {
     swim: triSessions.filter(s => s.type === 'swim').reduce((sum, s) => sum + s.distance, 0),
     bike: triSessions.filter(s => s.type === 'bike').reduce((sum, s) => sum + s.distance, 0),
@@ -1560,13 +1571,30 @@
                 )}
 
                 <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {activeWorkout.exercises.map(ex => (
+                  {activeWorkout.exercises.map(ex => {
+                    const prevStats = getLastExerciseStats(ex.name);
+                    return (
                     <div key={ex.id} className="bg-gray-800 rounded-xl p-2">
-                      <div className="flex justify-between items-center mb-2">
+                      <div className="flex justify-between items-center mb-1">
                         <span className="text-purple-400 font-bold">{ex.name}</span>
                         <button onClick={() => removeExercise(ex.id)} className="text-red-400 px-2 bg-transparent">🗑️</button>
                       </div>
-                      
+
+                      {prevStats && (
+                        <div className="bg-gray-900 rounded-lg px-2 py-1 mb-2 border border-gray-700">
+                          <div className="text-xs text-gray-500 mb-1">LAST: {prevStats.date}</div>
+                          <div className="flex flex-wrap gap-1">
+                            {prevStats.sets.map((s, i) => (
+                              <span key={i} className="text-xs bg-gray-700 rounded px-1.5 py-0.5 text-gray-300">
+                                {s.isCardio
+                                  ? `${s.duration}min • ${s.calories}cal`
+                                  : `${s.reps}×${displayWeight(s.weight)}${weightUnit}`}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {ex.sets.map((s, i) => (
                         <div key={s.id} className="flex justify-between bg-gray-700 rounded-lg px-2 py-1 mb-1">
                           <span className="text-gray-400">#{i + 1}</span>
@@ -1618,14 +1646,20 @@
                           <button onClick={() => {
                             if (isCardio(ex.name)) {
                               const lastSet = ex.sets.length > 0 ? ex.sets[ex.sets.length - 1] : null;
-                              setNewCardioSet(lastSet ? { duration: lastSet.duration, calories: lastSet.calories } : { duration: 20, calories: 150 });
+                              const prevCardio = !lastSet && prevStats ? prevStats.sets[prevStats.sets.length - 1] : null;
+                              setNewCardioSet(lastSet ? { duration: lastSet.duration, calories: lastSet.calories }
+                                : prevCardio ? { duration: prevCardio.duration, calories: prevCardio.calories }
+                                : { duration: 20, calories: 150 });
                             } else {
-                              const lastWeight = ex.sets.length > 0 ? ex.sets[ex.sets.length - 1].weight : (isBarbell(ex.name) ? 20 : 20);
-                              const displayW = weightUnit === 'lbs' ? Math.round(kgToLbs(lastWeight) / 5) * 5 : lastWeight;
+                              const lastSet = ex.sets.length > 0 ? ex.sets[ex.sets.length - 1] : null;
+                              const prevSet = !lastSet && prevStats ? prevStats.sets[prevStats.sets.length - 1] : null;
+                              const srcWeight = lastSet ? lastSet.weight : (prevSet ? prevSet.weight : (isBarbell(ex.name) ? 20 : 20));
+                              const srcReps = lastSet ? lastSet.reps : (prevSet ? prevSet.reps : 10);
+                              const displayW = weightUnit === 'lbs' ? Math.round(kgToLbs(srcWeight) / 5) * 5 : srcWeight;
                               const defaultWeight = isBarbell(ex.name)
-                                ? (weightUnit === 'lbs' ? 45 : 20)  // Bar weight as default
+                                ? (weightUnit === 'lbs' ? 45 : 20)
                                 : (weightUnit === 'lbs' ? 20 : 10);
-                              setNewSet(ex.sets.length > 0 ? { reps: ex.sets[ex.sets.length - 1].reps, weight: displayW } : { reps: 10, weight: defaultWeight });
+                              setNewSet((lastSet || prevSet) ? { reps: srcReps, weight: displayW } : { reps: 10, weight: defaultWeight });
                             }
                             setShowAddSet(ex.id);
                           }} className="bg-blue-600 rounded-lg py-2 font-bold">{isCardio(ex.name) ? '+ LOG' : '+ SET'}</button>
@@ -1635,7 +1669,8 @@
                         </div>
                       )}
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
