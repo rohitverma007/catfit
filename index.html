@@ -934,13 +934,17 @@
   // Build a description summarizing the workout
   const buildStravaDescription = (session) => {
     const lines = [];
+    const unit = weightUnit || 'kg';
     for (const ex of session.exercises) {
       if (isCardio(ex.name) || ex.sets.some(s => s.isCardio)) {
         const totalMin = ex.sets.reduce((sum, s) => sum + (s.duration || 0), 0);
         const totalCal = ex.sets.reduce((sum, s) => sum + (s.calories || 0), 0);
         lines.push(`${ex.name}: ${totalMin}min, ${totalCal}cal`);
       } else {
-        const setDescs = ex.sets.map((s, i) => `${s.reps}×${Math.round(s.weight)}kg`);
+        const setDescs = ex.sets.map(s => {
+          const w = unit === 'lbs' ? Math.round(s.weight * 2.20462) : Math.round(s.weight);
+          return `${s.reps}×${w}${unit}`;
+        });
         lines.push(`${ex.name}: ${setDescs.join(', ')}`);
       }
     }
@@ -963,9 +967,24 @@
   ];
 
   const openStravaPushModal = (session) => {
-    const exerciseNames = session.exercises.map(e => e.name).join(', ');
-    setStravaPushName(exerciseNames || 'CatFit Workout');
-    setStravaPushSport(exerciseToStravaSportType(session));
+    const sport = exerciseToStravaSportType(session);
+    // Build body-part tags from exerciseDatabase categories
+    const bodyParts = new Set();
+    for (const ex of session.exercises) {
+      for (const [group, exercises] of Object.entries(exerciseDatabase)) {
+        if (exercises.includes(ex.name)) {
+          // Capitalize: "chest" -> "Chest", combine arms
+          if (group === 'biceps' || group === 'triceps') bodyParts.add('Arms');
+          else if (group === 'cardio') {} // skip, sport type covers it
+          else bodyParts.add(group.charAt(0).toUpperCase() + group.slice(1));
+        }
+      }
+    }
+    const sportLabel = sport.replace(/([A-Z])/g, ' $1').trim();
+    const parts = bodyParts.size > 0 ? [...bodyParts].join(', ') : '';
+    const name = parts ? `${sportLabel} | ${parts} | CatFitApp` : `${sportLabel} | CatFitApp`;
+    setStravaPushName(name);
+    setStravaPushSport(sport);
     setStravaPushModal(session);
     setStravaPushResult(null);
   };
