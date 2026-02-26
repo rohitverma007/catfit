@@ -801,7 +801,7 @@
     const url = new URL(window.location.href);
     const code = url.searchParams.get('code');
     const scope = url.searchParams.get('scope');
-    if (code && scope && scope.includes('activity:read')) {
+    if (code && scope && (scope.includes('activity:read') || scope.includes('activity:write'))) {
       // Clean the URL
       window.history.replaceState({}, '', url.pathname);
       // Exchange code for tokens via our serverless API
@@ -857,7 +857,7 @@
   const stravaConnect = () => {
     const clientId = '205924';
     const redirectUri = encodeURIComponent(window.location.origin + '/');
-    const scope = 'activity:read_all';
+    const scope = 'activity:read_all,activity:write';
     window.location.href = `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}&scope=${scope}&approval_prompt=auto`;
   };
 
@@ -905,6 +905,117 @@
     if (['Ride', 'VirtualRide', 'GravelRide', 'MountainBikeRide', 'EBikeRide'].includes(type)) return 'bike';
     if (type === 'Swim') return 'swim';
     return null;
+  };
+
+  // Map CatFit exercise name to Strava sport_type for pushing workouts
+  const exerciseToStravaSportType = (session) => {
+    if (!session.exercises || session.exercises.length === 0) return 'Workout';
+    const names = session.exercises.map(e => e.name.toLowerCase());
+    const hasCardio = session.exercises.some(e => isCardio(e.name));
+    const allCardio = session.exercises.every(e => isCardio(e.name) || e.sets.some(s => s.isCardio));
+
+    // If there's a Strava name stored (from a previous sync), use that as a hint
+    if (session.stravaName) return 'Workout';
+
+    // Check for specific cardio exercises
+    if (names.some(n => n.includes('treadmill'))) return allCardio ? 'Run' : 'Workout';
+    if (names.some(n => n === 'bike')) return allCardio ? 'Ride' : 'Workout';
+    if (names.some(n => n === 'rowing')) return allCardio ? 'Rowing' : 'Workout';
+    if (names.some(n => n === 'elliptical')) return 'Elliptical';
+    if (names.some(n => n.includes('jump rope'))) return 'Workout';
+
+    // All cardio but no specific match
+    if (allCardio) return 'Workout';
+
+    // Strength training
+    return 'WeightTraining';
+  };
+
+  // Build a description summarizing the workout
+  const buildStravaDescription = (session) => {
+    const lines = [];
+    for (const ex of session.exercises) {
+      if (isCardio(ex.name) || ex.sets.some(s => s.isCardio)) {
+        const totalMin = ex.sets.reduce((sum, s) => sum + (s.duration || 0), 0);
+        const totalCal = ex.sets.reduce((sum, s) => sum + (s.calories || 0), 0);
+        lines.push(`${ex.name}: ${totalMin}min, ${totalCal}cal`);
+      } else {
+        const setDescs = ex.sets.map((s, i) => `${s.reps}×${Math.round(s.weight)}kg`);
+        lines.push(`${ex.name}: ${setDescs.join(', ')}`);
+      }
+    }
+    lines.push('', 'Logged with CatFit');
+    return lines.join('\n');
+  };
+
+  // Push a workout session to Strava
+  const [stravaPushing, setStravaPushing] = useState(null); // session id being pushed
+  const [stravaPushResult, setStravaPushResult] = useState(null);
+
+  // Strava push modal state — lets user pick sport type and edit name before sending
+  const [stravaPushModal, setStravaPushModal] = useState(null); // session to push
+  const [stravaPushName, setStravaPushName] = useState('');
+  const [stravaPushSport, setStravaPushSport] = useState('WeightTraining');
+
+  const stravaSportTypes = [
+    'WeightTraining', 'Run', 'Ride', 'Swim', 'Walk', 'Hike',
+    'Rowing', 'Elliptical', 'Yoga', 'Crossfit', 'Workout',
+  ];
+
+  const openStravaPushModal = (session) => {
+    const exerciseNames = session.exercises.map(e => e.name).join(', ');
+    setStravaPushName(exerciseNames || 'CatFit Workout');
+    setStravaPushSport(exerciseToStravaSportType(session));
+    setStravaPushModal(session);
+    setStravaPushResult(null);
+  };
+
+  const stravaPushWorkout = async () => {
+    const session = stravaPushModal;
+    if (!session || !stravaTokens) {
+      setStravaPushResult({ ok: false, message: 'Not connected to Strava' });
+      return;
+    }
+    setStravaPushing(session.id);
+    setStravaPushResult(null);
+    try {
+      const token = await stravaGetValidToken();
+      if (!token) {
+        setStravaPushResult({ ok: false, message: 'Strava auth expired — reconnect in Settings' });
+        setStravaPushing(null);
+        return;
+      }
+
+      const res = await fetch('/api/strava/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: (stravaPushName || 'CatFit Workout').slice(0, 200),
+          sport_type: stravaPushSport,
+          start_date_local: session.startTime || new Date(session.date).toISOString(),
+          elapsed_time: (session.duration || 1) * 60, // convert min to sec
+          description: buildStravaDescription(session),
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        // Mark session as pushed to avoid re-pushing
+        setGymSessions(prev => prev.map(s =>
+          s.id === session.id ? { ...s, stravaExportId: data.id } : s
+        ));
+        setStravaPushResult({ ok: true, message: 'Pushed to Strava!' });
+        setTimeout(() => setStravaPushModal(null), 1200);
+      } else {
+        setStravaPushResult({ ok: false, message: data.error || 'Failed to push' });
+      }
+    } catch {
+      setStravaPushResult({ ok: false, message: 'Network error' });
+    }
+    setStravaPushing(null);
   };
 
   const stravaSyncActivities = async () => {
@@ -1748,6 +1859,20 @@
                     </div>
                   ))}
                 </div>
+                {stravaTokens && !viewingSession.stravaId && (
+                  <button
+                    onClick={() => openStravaPushModal(viewingSession)}
+                    disabled={viewingSession.stravaExportId}
+                    className={`w-full rounded-xl py-3 font-bold ${
+                      viewingSession.stravaExportId ? 'bg-gray-700 text-gray-400' : 'bg-orange-600'
+                    }`}
+                  >
+                    {viewingSession.stravaExportId ? 'Pushed to Strava' : 'Push to Strava'}
+                  </button>
+                )}
+                {viewingSession.stravaId && (
+                  <div className="text-center text-xs text-orange-400 py-1">Imported from Strava</div>
+                )}
                 <button onClick={() => { setGymSessions(gymSessions.filter(s => s.id !== viewingSession.id)); setViewingSession(null); }} className="w-full bg-red-600 rounded-xl py-3 font-bold">🗑️ DELETE</button>
               </>
             ) : !activeWorkout ? (
@@ -1765,15 +1890,27 @@
                 </div>
                 <div className="space-y-1 max-h-48 overflow-y-auto">
                   {gymSessions.map(s => (
-                    <button key={s.id} onClick={() => setViewingSession(s)} className="w-full bg-gray-800 rounded-xl p-3 text-left">
-                      <div className="flex justify-between">
-                        <div>
-                          <div className="font-bold">{s.date}</div>
-                          <div className="text-xs text-gray-400">{s.exercises.length} ex • {s.duration}m</div>
+                    <div key={s.id} className="flex gap-1">
+                      <button onClick={() => setViewingSession(s)} className="flex-1 bg-gray-800 rounded-xl p-3 text-left">
+                        <div className="flex justify-between">
+                          <div>
+                            <div className="font-bold">{s.date}</div>
+                            <div className="text-xs text-gray-400">{s.exercises.length} ex • {s.duration}m</div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {(s.stravaId || s.stravaExportId) && <span className="text-xs text-orange-400">S</span>}
+                            <span className="text-xl">→</span>
+                          </div>
                         </div>
-                        <span className="text-xl">→</span>
-                      </div>
-                    </button>
+                      </button>
+                      {stravaTokens && !s.stravaId && !s.stravaExportId && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openStravaPushModal(s); }}
+                          className="bg-orange-600 rounded-xl px-3 flex items-center text-sm font-bold shrink-0"
+                          aria-label="Push to Strava"
+                        >S</button>
+                      )}
+                    </div>
                   ))}
                 </div>
               </>
@@ -2180,6 +2317,60 @@
           </div>
         )}
       </main>
+
+      {/* Strava Push Modal */}
+      {stravaPushModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-900 rounded-2xl w-full max-w-sm p-4 space-y-3">
+            <div className="text-center font-bold text-lg">Push to Strava</div>
+            <div className="text-center text-xs text-gray-400">
+              {stravaPushModal.date} • {stravaPushModal.duration}min • {stravaPushModal.exercises.length} exercise{stravaPushModal.exercises.length !== 1 ? 's' : ''}
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">Activity Name</label>
+              <input
+                type="text"
+                value={stravaPushName}
+                onChange={(e) => setStravaPushName(e.target.value)}
+                maxLength={200}
+                className="w-full bg-gray-800 rounded-lg px-3 py-2 text-white outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">Sport Type</label>
+              <div className="grid grid-cols-3 gap-1">
+                {stravaSportTypes.map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setStravaPushSport(t)}
+                    className={`py-2 rounded-lg text-xs font-bold ${stravaPushSport === t ? 'bg-orange-600' : 'bg-gray-800'}`}
+                  >{t.replace(/([A-Z])/g, ' $1').trim()}</button>
+                ))}
+              </div>
+            </div>
+
+            {stravaPushResult && (
+              <div className={`text-center text-sm py-1 ${stravaPushResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+                {stravaPushResult.message}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => { setStravaPushModal(null); setStravaPushResult(null); }}
+                className="bg-gray-700 rounded-xl py-3 font-bold"
+              >Cancel</button>
+              <button
+                onClick={stravaPushWorkout}
+                disabled={stravaPushing === stravaPushModal.id}
+                className={`rounded-xl py-3 font-bold ${stravaPushing === stravaPushModal.id ? 'bg-gray-600 cursor-not-allowed' : 'bg-orange-600'}`}
+              >{stravaPushing === stravaPushModal.id ? 'Pushing...' : 'Push'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Navigation hint bar for dumbphone users */}
       <NavHintBar showTabHints={!showAddMeal && !showAddWeight && !showExercisePicker && !viewingSession} />
