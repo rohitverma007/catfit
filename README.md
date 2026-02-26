@@ -21,6 +21,7 @@
   <img src="https://img.shields.io/badge/PWA-enabled-brightgreen" alt="PWA Enabled">
   <img src="https://img.shields.io/badge/offline-ready-success" alt="Offline Ready">
   <img src="https://img.shields.io/badge/price-free-orange" alt="Free">
+  <img src="https://img.shields.io/badge/Strava-integrated-FC4C02" alt="Strava Integrated">
 </p>
 
 ---
@@ -96,6 +97,19 @@ Originally designed for the **Cat S22 Flip** dumbphone, CatFit works on any devi
 - **Recovery monitoring** — see which muscle groups need rest
 - **Workout timeline** — browse your complete training history
 - Drag-and-drop data import for analysis
+
+### Strava Integration
+- **Two-way sync** — import Strava activities into CatFit and push CatFit workouts to Strava
+- Automatic activity type mapping (runs, rides, swims, strength training, and more)
+- Pulls last 30 days of activity history with incremental sync
+- Includes workout details, heart rate data, and calories in exported activity descriptions
+- Secure **OAuth 2.0** authentication — connect once and stay synced
+
+### Heart Rate Monitor (Bluetooth)
+- Connect any **Bluetooth Low Energy** heart rate monitor (Garmin, Polar, Wahoo, Apple Watch, etc.)
+- **Live BPM display** during workouts with real-time tracking
+- Automatic **calorie calculation** using the Keytel et al. scientific formula based on your age, weight, and gender
+- Heart rate data (avg, max, calories) automatically included when syncing workouts to Strava
 
 ### Privacy & Offline
 - **100% local storage** — data never leaves your device
