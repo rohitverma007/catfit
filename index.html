@@ -789,6 +789,131 @@
   const [newTri, setNewTri] = useState({ type: 'swim', distance: 0 });
   const [showAddTri, setShowAddTri] = useState(false);
 
+  // Heart Rate Monitor States (BLE)
+  const [hrDevice, setHrDevice] = useState(null);
+  const [hrCharacteristic, setHrCharacteristic] = useState(null);
+  const [hrConnected, setHrConnected] = useState(false);
+  const [hrConnecting, setHrConnecting] = useState(false);
+  const [currentHR, setCurrentHR] = useState(null);
+  const [hrHistory, setHrHistory] = useState([]); // array of { bpm, timestamp }
+  const [hrCaloriesBurned, setHrCaloriesBurned] = useState(0);
+  const [hrUserAge, setHrUserAge] = useState(() => loadData('hrUserAge', 30));
+  const [hrUserGender, setHrUserGender] = useState(() => loadData('hrUserGender', 'male')); // 'male' or 'female'
+  const [hrUserBodyWeight, setHrUserBodyWeight] = useState(() => loadData('hrUserBodyWeight', 70)); // in kg
+
+  // BLE Heart Rate Connection
+  const hrSupported = typeof navigator !== 'undefined' && !!navigator.bluetooth;
+
+  const connectHR = async () => {
+    if (!hrSupported) { alert('Bluetooth not supported in this browser. Use Chrome on Android or desktop.'); return; }
+    setHrConnecting(true);
+    try {
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: ['heart_rate'] }],
+        optionalServices: ['heart_rate']
+      });
+      device.addEventListener('gattserverdisconnected', () => {
+        setHrConnected(false);
+        setCurrentHR(null);
+        setHrDevice(null);
+        setHrCharacteristic(null);
+      });
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService('heart_rate');
+      const characteristic = await service.getCharacteristic('heart_rate_measurement');
+      await characteristic.startNotifications();
+      characteristic.addEventListener('characteristicvaluechanged', (event) => {
+        const value = event.target.value;
+        const flags = value.getUint8(0);
+        const is16Bit = flags & 0x1;
+        const bpm = is16Bit ? value.getUint16(1, true) : value.getUint8(1);
+        if (bpm > 0 && bpm < 250) {
+          setCurrentHR(bpm);
+          setHrHistory(prev => [...prev, { bpm, timestamp: Date.now() }]);
+        }
+      });
+      setHrDevice(device);
+      setHrCharacteristic(characteristic);
+      setHrConnected(true);
+    } catch (err) {
+      if (err.name !== 'NotFoundError') {
+        console.error('HR connect error:', err);
+        alert('Could not connect to heart rate monitor. Make sure your watch is broadcasting HR via Bluetooth.');
+      }
+    }
+    setHrConnecting(false);
+  };
+
+  const disconnectHR = () => {
+    if (hrDevice && hrDevice.gatt.connected) {
+      hrDevice.gatt.disconnect();
+    }
+    setHrConnected(false);
+    setCurrentHR(null);
+    setHrDevice(null);
+    setHrCharacteristic(null);
+  };
+
+  // Calorie calculation from HR (Keytel et al. 2005 formula)
+  // Male: Cal/min = (-55.0969 + 0.6309*HR + 0.1988*Weight + 0.2017*Age) / 4.184
+  // Female: Cal/min = (-20.4022 + 0.4472*HR - 0.1263*Weight + 0.074*Age) / 4.184
+  const hrCalRef = useRef({ lastCalcTime: null, totalCals: 0 });
+
+  useEffect(() => {
+    if (!currentHR || !activeWorkout) return;
+    const now = Date.now();
+    const last = hrCalRef.current.lastCalcTime;
+    if (last) {
+      const minutes = (now - last) / 60000;
+      if (minutes > 0 && minutes < 5) { // ignore gaps > 5 min
+        const w = hrUserBodyWeight;
+        const a = hrUserAge;
+        let calPerMin;
+        if (hrUserGender === 'male') {
+          calPerMin = (-55.0969 + 0.6309 * currentHR + 0.1988 * w + 0.2017 * a) / 4.184;
+        } else {
+          calPerMin = (-20.4022 + 0.4472 * currentHR - 0.1263 * w + 0.074 * a) / 4.184;
+        }
+        if (calPerMin > 0) {
+          hrCalRef.current.totalCals += calPerMin * minutes;
+          setHrCaloriesBurned(Math.round(hrCalRef.current.totalCals));
+        }
+      }
+    }
+    hrCalRef.current.lastCalcTime = now;
+  }, [currentHR]);
+
+  // Reset HR data when starting a new workout
+  const resetHRData = () => {
+    setHrHistory([]);
+    setHrCaloriesBurned(0);
+    hrCalRef.current = { lastCalcTime: null, totalCals: 0 };
+  };
+
+  // Get HR stats summary
+  const getHRStats = () => {
+    if (hrHistory.length === 0) return null;
+    const bpms = hrHistory.map(h => h.bpm);
+    return {
+      avg: Math.round(bpms.reduce((a, b) => a + b, 0) / bpms.length),
+      max: Math.max(...bpms),
+      min: Math.min(...bpms),
+      calories: hrCaloriesBurned,
+      samples: hrHistory.length
+    };
+  };
+
+  // HR zone calculation (based on max HR = 220 - age)
+  const getHRZone = (bpm) => {
+    const maxHR = 220 - hrUserAge;
+    const pct = (bpm / maxHR) * 100;
+    if (pct < 60) return { zone: 1, name: 'EASY', color: 'text-gray-400' };
+    if (pct < 70) return { zone: 2, name: 'FAT BURN', color: 'text-blue-400' };
+    if (pct < 80) return { zone: 3, name: 'CARDIO', color: 'text-green-400' };
+    if (pct < 90) return { zone: 4, name: 'HARD', color: 'text-orange-400' };
+    return { zone: 5, name: 'MAX', color: 'text-red-400' };
+  };
+
   // Strava Sync States
   const [stravaTokens, setStravaTokens] = useState(() => loadData('stravaTokens', null));
   const [stravaAthlete, setStravaAthlete] = useState(() => loadData('stravaAthlete', null));
@@ -947,6 +1072,10 @@
         });
         lines.push(`${ex.name}: ${setDescs.join(', ')}`);
       }
+    }
+    if (session.hr) {
+      lines.push(`\nHeart Rate: avg ${session.hr.avg} bpm, max ${session.hr.max} bpm`);
+      lines.push(`Calories burned: ${session.hr.calories} cal`);
     }
     lines.push('', 'Logged with catfitapp.com');
     return lines.join('\n');
@@ -1240,6 +1369,9 @@
   useEffect(() => { safeSave('stravaTokens', stravaTokens, false); }, [stravaTokens, dataHydrated]);
   useEffect(() => { safeSave('stravaAthlete', stravaAthlete, false); }, [stravaAthlete, dataHydrated]);
   useEffect(() => { safeSave('stravaLastSync', stravaLastSync, false); }, [stravaLastSync, dataHydrated]);
+  useEffect(() => { safeSave('hrUserAge', hrUserAge, false); }, [hrUserAge, dataHydrated]);
+  useEffect(() => { safeSave('hrUserGender', hrUserGender, false); }, [hrUserGender, dataHydrated]);
+  useEffect(() => { safeSave('hrUserBodyWeight', hrUserBodyWeight, false); }, [hrUserBodyWeight, dataHydrated]);
 
   const totalCal = meals.filter(m => m.date === selectedDate).reduce((sum, m) => sum + m.calories, 0);
   const currentWeight = weightEntries.length > 0 ? weightEntries[weightEntries.length - 1].weight : 0;
@@ -1318,6 +1450,7 @@
 
   const startWorkout = () => {
     const now = new Date();
+    resetHRData();
     setActiveWorkout({
       id: Date.now().toString(),
       startTime: now.toISOString(),
@@ -1330,9 +1463,15 @@
   const endWorkout = () => {
     if (activeWorkout && activeWorkout.exercises.length > 0) {
       const duration = Math.round((new Date() - new Date(activeWorkout.startTime)) / 60000);
-      setGymSessions([{ ...activeWorkout, duration }, ...gymSessions]);
+      const hrStats = getHRStats();
+      const sessionData = { ...activeWorkout, duration };
+      if (hrStats) {
+        sessionData.hr = hrStats;
+      }
+      setGymSessions([sessionData, ...gymSessions]);
     }
     setActiveWorkout(null);
+    resetHRData();
   };
 
   const addExercise = (name) => {
@@ -1861,6 +2000,29 @@
                   <div className="font-bold">{viewingSession.date} • {viewingSession.time}</div>
                   <div className="text-gray-400 text-sm">{viewingSession.duration}min</div>
                 </div>
+                {viewingSession.hr && (
+                  <div className="bg-gray-800 rounded-xl p-3 border border-red-500/20">
+                    <div className="text-xs text-gray-400 text-center mb-2">HEART RATE DATA</div>
+                    <div className="grid grid-cols-4 gap-2 text-center">
+                      <div>
+                        <div className="text-lg font-bold text-red-400">{viewingSession.hr.avg}</div>
+                        <div className="text-xs text-gray-500">avg bpm</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-bold text-red-300">{viewingSession.hr.max}</div>
+                        <div className="text-xs text-gray-500">max bpm</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-bold text-red-200">{viewingSession.hr.min}</div>
+                        <div className="text-xs text-gray-500">min bpm</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-bold text-orange-400">{viewingSession.hr.calories}</div>
+                        <div className="text-xs text-gray-500">cal</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {viewingSession.exercises.map(ex => (
                     <div key={ex.id} className="bg-gray-800 rounded-xl p-2">
@@ -1909,9 +2071,10 @@
                       <div className="flex justify-between">
                         <div>
                           <div className="font-bold">{s.date}</div>
-                          <div className="text-xs text-gray-400">{s.exercises.length} ex • {s.duration}m</div>
+                          <div className="text-xs text-gray-400">{s.exercises.length} ex • {s.duration}m{s.hr ? ` • ${s.hr.calories}cal` : ''}</div>
                         </div>
                         <div className="flex items-center gap-1">
+                          {s.hr && <span className="text-xs text-red-400">♥{s.hr.avg}</span>}
                           {(s.stravaId || s.stravaExportId) && <span className="text-xs text-orange-400">S</span>}
                           <span className="text-xl">→</span>
                         </div>
@@ -1929,6 +2092,36 @@
                   </div>
                   <span className="text-3xl animate-pulse">●</span>
                 </div>
+
+                {/* Heart Rate Monitor */}
+                {hrConnected && currentHR ? (
+                  <div className="bg-gray-800 rounded-xl p-3 border border-red-500/30">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="text-3xl font-bold text-red-400 animate-pulse">♥</div>
+                        <div>
+                          <div className="text-3xl font-bold">{currentHR} <span className="text-sm font-normal text-gray-400">bpm</span></div>
+                          <div className={`text-xs font-bold ${getHRZone(currentHR).color}`}>Z{getHRZone(currentHR).zone} {getHRZone(currentHR).name}</div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-bold text-orange-400">{hrCaloriesBurned} <span className="text-xs font-normal">cal</span></div>
+                        {hrHistory.length > 0 && (
+                          <div className="text-xs text-gray-500">avg {Math.round(hrHistory.reduce((a, h) => a + h.bpm, 0) / hrHistory.length)}</div>
+                        )}
+                      </div>
+                    </div>
+                    <button onClick={disconnectHR} className="w-full mt-2 text-xs text-gray-500 hover:text-red-400">Disconnect Watch</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={connectHR}
+                    disabled={hrConnecting}
+                    className={`w-full rounded-xl py-3 font-bold text-sm ${hrConnecting ? 'bg-gray-700 text-gray-400' : 'bg-gray-800 border border-red-500/30 text-red-400'}`}
+                  >
+                    {hrConnecting ? 'Connecting...' : hrConnected ? '♥ Waiting for HR...' : '♥ Connect Watch (HR Monitor)'}
+                  </button>
+                )}
 
                 {showExercisePicker ? (
                   <div className="bg-gray-800 rounded-xl p-2 space-y-2">
@@ -2079,6 +2272,9 @@
                   weightUnit,
                   gymSessions,
                   triSessions,
+                  hrUserAge,
+                  hrUserGender,
+                  hrUserBodyWeight,
                   exportDate: new Date().toISOString()
                 };
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -2183,6 +2379,13 @@
                             time: sanitizeStr(s.time || '', 10),
                             duration: typeof s.duration === 'number' ? Math.min(Math.max(0, Math.floor(s.duration)), 600) : 0,
                             startTime: sanitizeStr(s.startTime || '', 30),
+                            ...(s.hr && typeof s.hr === 'object' ? { hr: {
+                              avg: typeof s.hr.avg === 'number' ? Math.min(Math.max(0, Math.floor(s.hr.avg)), 250) : 0,
+                              max: typeof s.hr.max === 'number' ? Math.min(Math.max(0, Math.floor(s.hr.max)), 250) : 0,
+                              min: typeof s.hr.min === 'number' ? Math.min(Math.max(0, Math.floor(s.hr.min)), 250) : 0,
+                              calories: typeof s.hr.calories === 'number' ? Math.min(Math.max(0, Math.floor(s.hr.calories)), 10000) : 0,
+                              samples: typeof s.hr.samples === 'number' ? Math.floor(s.hr.samples) : 0
+                            }} : {}),
                             exercises: (s.exercises || []).slice(0, 50).filter(ex =>
                               ex && typeof ex === 'object' && typeof ex.name === 'string'
                             ).map(ex => ({
@@ -2201,6 +2404,17 @@
                             }))
                           }));
                           setGymSessions(validSessions);
+                        }
+
+                        // Import HR profile settings
+                        if (typeof data.hrUserAge === 'number' && data.hrUserAge >= 10 && data.hrUserAge <= 99) {
+                          setHrUserAge(Math.floor(data.hrUserAge));
+                        }
+                        if (data.hrUserGender === 'male' || data.hrUserGender === 'female') {
+                          setHrUserGender(data.hrUserGender);
+                        }
+                        if (typeof data.hrUserBodyWeight === 'number' && data.hrUserBodyWeight >= 30 && data.hrUserBodyWeight <= 200) {
+                          setHrUserBodyWeight(Math.floor(data.hrUserBodyWeight));
                         }
 
                         alert('Data imported successfully!');
@@ -2278,6 +2492,66 @@
               )}
               <div className="text-xs text-gray-500 text-center">
                 Import your runs, rides, swims and workouts from Strava
+              </div>
+            </div>
+
+            {/* Heart Rate Monitor Settings */}
+            <div className="text-center text-gray-400 text-sm mt-4">Heart Rate Monitor</div>
+            <div className="bg-gray-800 rounded-xl p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className={`text-sm font-bold ${hrConnected ? 'text-red-400' : 'text-gray-400'}`}>
+                    {hrConnected ? '♥ Connected' : '♥ Not Connected'}
+                  </div>
+                  {hrDevice && <div className="text-xs text-gray-500">{hrDevice.name || 'Heart Rate Monitor'}</div>}
+                </div>
+                {hrConnected ? (
+                  <button onClick={disconnectHR} className="bg-gray-700 rounded-lg px-3 py-1 text-sm">Disconnect</button>
+                ) : (
+                  <button
+                    onClick={connectHR}
+                    disabled={hrConnecting || !hrSupported}
+                    className={`rounded-lg px-3 py-1 text-sm font-bold ${!hrSupported ? 'bg-gray-700 text-gray-500' : hrConnecting ? 'bg-gray-700' : 'bg-red-600'}`}
+                  >
+                    {!hrSupported ? 'Not Supported' : hrConnecting ? 'Connecting...' : 'Connect Watch'}
+                  </button>
+                )}
+              </div>
+              {!hrSupported && (
+                <div className="text-xs text-yellow-400">Web Bluetooth requires Chrome on Android or desktop. Not available on iOS.</div>
+              )}
+              <div className="text-xs text-gray-500 text-center">
+                Works with Garmin, Apple Watch, Polar, Wahoo, and other BLE heart rate monitors
+              </div>
+              <div className="border-t border-gray-700 pt-2">
+                <div className="text-xs text-gray-400 mb-2">Calorie Calculation Profile</div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <div className="text-xs text-gray-500 text-center mb-1">Age</div>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => setHrUserAge(Math.max(10, hrUserAge - 1))} className="bg-gray-700 rounded px-2 py-1 text-sm">−</button>
+                      <div className="flex-1 text-center font-bold">{hrUserAge}</div>
+                      <button onClick={() => setHrUserAge(Math.min(99, hrUserAge + 1))} className="bg-gray-700 rounded px-2 py-1 text-sm">+</button>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 text-center mb-1">Weight (kg)</div>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => setHrUserBodyWeight(Math.max(30, hrUserBodyWeight - 1))} className="bg-gray-700 rounded px-2 py-1 text-sm">−</button>
+                      <div className="flex-1 text-center font-bold">{hrUserBodyWeight}</div>
+                      <button onClick={() => setHrUserBodyWeight(Math.min(200, hrUserBodyWeight + 1))} className="bg-gray-700 rounded px-2 py-1 text-sm">+</button>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 text-center mb-1">Gender</div>
+                    <button
+                      onClick={() => setHrUserGender(hrUserGender === 'male' ? 'female' : 'male')}
+                      className="w-full bg-gray-700 rounded py-1 text-sm font-bold"
+                    >
+                      {hrUserGender === 'male' ? 'M' : 'F'}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
