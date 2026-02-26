@@ -973,9 +973,8 @@
     for (const ex of session.exercises) {
       for (const [group, exercises] of Object.entries(exerciseDatabase)) {
         if (exercises.includes(ex.name)) {
-          // Capitalize: "chest" -> "Chest", combine arms
           if (group === 'biceps' || group === 'triceps') bodyParts.add('Arms');
-          else if (group === 'cardio') {} // skip, sport type covers it
+          else if (group === 'cardio') {}
           else bodyParts.add(group.charAt(0).toUpperCase() + group.slice(1));
         }
       }
