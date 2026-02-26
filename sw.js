@@ -34,8 +34,8 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Skip caching for external API requests and non-http(s) schemes
-  if (url.origin !== self.location.origin || !url.protocol.startsWith('http')) {
+  // Skip caching for external API requests, API routes, and non-http(s) schemes
+  if (url.origin !== self.location.origin || !url.protocol.startsWith('http') || url.pathname.startsWith('/api/')) {
     return; // Let the browser handle these requests normally
   }
 

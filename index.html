@@ -789,6 +789,241 @@
   const [newTri, setNewTri] = useState({ type: 'swim', distance: 0 });
   const [showAddTri, setShowAddTri] = useState(false);
 
+  // Strava Sync States
+  const [stravaTokens, setStravaTokens] = useState(() => loadData('stravaTokens', null));
+  const [stravaAthlete, setStravaAthlete] = useState(() => loadData('stravaAthlete', null));
+  const [stravaSyncing, setStravaSyncing] = useState(false);
+  const [stravaSyncResult, setStravaSyncResult] = useState(null);
+  const [stravaLastSync, setStravaLastSync] = useState(() => loadData('stravaLastSync', null));
+
+  // Strava OAuth — handle redirect callback
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get('code');
+    const scope = url.searchParams.get('scope');
+    if (code && scope && scope.includes('activity:read')) {
+      // Clean the URL
+      window.history.replaceState({}, '', url.pathname);
+      // Exchange code for tokens via our serverless API
+      (async () => {
+        try {
+          const res = await fetch('/api/strava/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code }),
+          });
+          const data = await res.json();
+          if (res.ok && data.access_token) {
+            setStravaTokens({ access_token: data.access_token, refresh_token: data.refresh_token, expires_at: data.expires_at });
+            if (data.athlete) setStravaAthlete(data.athlete);
+            setStravaSyncResult({ ok: true, message: 'Connected to Strava!' });
+          } else {
+            setStravaSyncResult({ ok: false, message: data.error || 'Failed to connect' });
+          }
+        } catch {
+          setStravaSyncResult({ ok: false, message: 'Network error during Strava auth' });
+        }
+      })();
+    }
+  }, []);
+
+  // Strava helpers
+  const stravaGetValidToken = async () => {
+    if (!stravaTokens) return null;
+    // If token is still valid (with 60s buffer), use it
+    if (stravaTokens.expires_at && Date.now() / 1000 < stravaTokens.expires_at - 60) {
+      return stravaTokens.access_token;
+    }
+    // Otherwise refresh
+    try {
+      const res = await fetch('/api/strava/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: stravaTokens.refresh_token }),
+      });
+      const data = await res.json();
+      if (res.ok && data.access_token) {
+        const newTokens = { access_token: data.access_token, refresh_token: data.refresh_token, expires_at: data.expires_at };
+        setStravaTokens(newTokens);
+        return data.access_token;
+      }
+    } catch {}
+    // Refresh failed — disconnect
+    setStravaTokens(null);
+    setStravaAthlete(null);
+    return null;
+  };
+
+  const stravaConnect = () => {
+    const clientId = '143498';
+    const redirectUri = encodeURIComponent(window.location.origin + '/');
+    const scope = 'activity:read_all';
+    window.location.href = `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}&scope=${scope}&approval_prompt=auto`;
+  };
+
+  const stravaDisconnect = () => {
+    setStravaTokens(null);
+    setStravaAthlete(null);
+    setStravaLastSync(null);
+    localStorage.removeItem('stravaTokens');
+    localStorage.removeItem('stravaAthlete');
+    localStorage.removeItem('stravaLastSync');
+    setStravaSyncResult({ ok: true, message: 'Disconnected from Strava' });
+  };
+
+  // Map Strava activity type to CatFit exercise category
+  const stravaTypeToCategory = (type) => {
+    const map = {
+      'Run': 'cardio', 'VirtualRun': 'cardio', 'TrailRun': 'cardio',
+      'Ride': 'cardio', 'VirtualRide': 'cardio', 'GravelRide': 'cardio', 'MountainBikeRide': 'cardio', 'EBikeRide': 'cardio',
+      'Swim': 'cardio',
+      'Walk': 'cardio', 'Hike': 'cardio',
+      'Rowing': 'cardio', 'Kayaking': 'cardio', 'Canoeing': 'cardio',
+      'Elliptical': 'cardio', 'StairStepper': 'cardio',
+      'WeightTraining': 'strength', 'Crossfit': 'strength',
+      'Yoga': 'core', 'Pilates': 'core',
+    };
+    return map[type] || 'cardio';
+  };
+
+  // Map Strava activity type to a display name for CatFit
+  const stravaTypeToExercise = (type) => {
+    const map = {
+      'Run': 'Treadmill', 'VirtualRun': 'Treadmill', 'TrailRun': 'Treadmill',
+      'Ride': 'Bike', 'VirtualRide': 'Bike', 'GravelRide': 'Bike', 'MountainBikeRide': 'Bike', 'EBikeRide': 'Bike',
+      'Swim': 'Rowing', // closest cardio equivalent in exercise DB
+      'Walk': 'Treadmill', 'Hike': 'Treadmill',
+      'Rowing': 'Rowing', 'Kayaking': 'Rowing', 'Canoeing': 'Rowing',
+      'Elliptical': 'Elliptical', 'StairStepper': 'Elliptical',
+    };
+    return map[type] || type;
+  };
+
+  // Map Strava activity to triathlon discipline if applicable
+  const stravaTypeToTriDiscipline = (type) => {
+    if (['Run', 'VirtualRun', 'TrailRun', 'Walk', 'Hike'].includes(type)) return 'run';
+    if (['Ride', 'VirtualRide', 'GravelRide', 'MountainBikeRide', 'EBikeRide'].includes(type)) return 'bike';
+    if (type === 'Swim') return 'swim';
+    return null;
+  };
+
+  const stravaSyncActivities = async () => {
+    setStravaSyncing(true);
+    setStravaSyncResult(null);
+    try {
+      const token = await stravaGetValidToken();
+      if (!token) {
+        setStravaSyncResult({ ok: false, message: 'Not connected to Strava' });
+        setStravaSyncing(false);
+        return;
+      }
+
+      // Fetch activities from the last 30 days (or since last sync)
+      const after = stravaLastSync
+        ? Math.floor(new Date(stravaLastSync).getTime() / 1000)
+        : Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
+
+      const params = new URLSearchParams({ after: String(after), per_page: '100' });
+      const res = await fetch(`/api/strava/activities?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setStravaSyncResult({ ok: false, message: errData.error || `Strava API error (${res.status})` });
+        setStravaSyncing(false);
+        return;
+      }
+
+      const activities = await res.json();
+      if (!Array.isArray(activities) || activities.length === 0) {
+        setStravaSyncResult({ ok: true, message: 'No new activities to sync' });
+        const now = new Date().toISOString();
+        setStravaLastSync(now);
+        setStravaSyncing(false);
+        return;
+      }
+
+      // Get existing Strava IDs to avoid duplicates
+      const existingStravaIds = new Set();
+      gymSessions.forEach(s => { if (s.stravaId) existingStravaIds.add(s.stravaId); });
+      triSessions.forEach(s => { if (s.stravaId) existingStravaIds.add(s.stravaId); });
+
+      let newGymSessions = [];
+      let newTriSessions = [];
+      let imported = 0;
+      let skipped = 0;
+
+      for (const act of activities) {
+        const stravaId = String(act.id);
+        if (existingStravaIds.has(stravaId)) { skipped++; continue; }
+
+        const durationMin = Math.round((act.moving_time || act.elapsed_time || 0) / 60);
+        const distanceKm = (act.distance || 0) / 1000;
+        const calories = act.calories || Math.round(durationMin * 8); // estimate if missing
+        const actDate = new Date(act.start_date_local || act.start_date);
+        const dateStr = actDate.toLocaleDateString();
+        const timeStr = actDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        const category = stravaTypeToCategory(act.type);
+        const triDiscipline = stravaTypeToTriDiscipline(act.type);
+
+        // Add as triathlon session if it's a swim/bike/run
+        if (triDiscipline) {
+          newTriSessions.push({
+            id: Date.now().toString() + '_' + stravaId,
+            stravaId,
+            type: triDiscipline,
+            distance: Number(distanceKm.toFixed(2)),
+            duration: durationMin,
+            calories,
+            date: dateStr,
+          });
+        }
+
+        // Also add as a gym session for the workout log
+        const exerciseName = stravaTypeToExercise(act.type);
+        newGymSessions.push({
+          id: Date.now().toString() + '_s_' + stravaId,
+          stravaId,
+          date: dateStr,
+          time: timeStr,
+          duration: durationMin,
+          startTime: actDate.toISOString(),
+          stravaName: act.name,
+          exercises: [{
+            id: Date.now().toString() + '_e_' + stravaId,
+            name: category === 'strength' ? 'Weight Training' : exerciseName,
+            sets: category === 'strength' ? [] : [{
+              id: Date.now().toString() + '_set_' + stravaId,
+              duration: durationMin,
+              calories,
+              isCardio: true,
+            }],
+          }],
+        });
+        imported++;
+      }
+
+      if (newGymSessions.length > 0) {
+        setGymSessions(prev => [...newGymSessions, ...prev]);
+      }
+      if (newTriSessions.length > 0) {
+        setTriSessions(prev => [...newTriSessions, ...prev]);
+      }
+
+      const now = new Date().toISOString();
+      setStravaLastSync(now);
+      setStravaSyncResult({
+        ok: true,
+        message: `Synced ${imported} activit${imported === 1 ? 'y' : 'ies'}${skipped > 0 ? ` (${skipped} already existed)` : ''}`,
+      });
+    } catch (err) {
+      setStravaSyncResult({ ok: false, message: 'Network error during sync' });
+    }
+    setStravaSyncing(false);
+  };
+
   // PWA Install States
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -873,6 +1108,9 @@
   useEffect(() => { safeSave('gymSessions', gymSessions, true); }, [gymSessions, dataHydrated]);
   useEffect(() => { safeSave('activeWorkout', activeWorkout, false); }, [activeWorkout, dataHydrated]);
   useEffect(() => { safeSave('triSessions', triSessions, true); }, [triSessions, dataHydrated]);
+  useEffect(() => { safeSave('stravaTokens', stravaTokens, false); }, [stravaTokens, dataHydrated]);
+  useEffect(() => { safeSave('stravaAthlete', stravaAthlete, false); }, [stravaAthlete, dataHydrated]);
+  useEffect(() => { safeSave('stravaLastSync', stravaLastSync, false); }, [stravaLastSync, dataHydrated]);
 
   const totalCal = meals.filter(m => m.date === selectedDate).reduce((sum, m) => sum + m.calories, 0);
   const currentWeight = weightEntries.length > 0 ? weightEntries[weightEntries.length - 1].weight : 0;
@@ -1697,6 +1935,7 @@
                   goalWeight,
                   weightUnit,
                   gymSessions,
+                  triSessions,
                   exportDate: new Date().toISOString()
                 };
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1849,7 +2088,56 @@
             >
               🗑️ Clear All Data
             </button>
-            
+
+            {/* Strava Sync */}
+            <div className="text-center text-gray-400 text-sm mt-4">Strava Sync</div>
+            <div className="bg-gray-800 rounded-xl p-3 space-y-3">
+              {stravaTokens ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-bold text-orange-400">Connected to Strava</div>
+                      {stravaAthlete && (
+                        <div className="text-xs text-gray-400">{stravaAthlete.firstname} {stravaAthlete.lastname}</div>
+                      )}
+                      {stravaLastSync && (
+                        <div className="text-xs text-gray-500">Last sync: {new Date(stravaLastSync).toLocaleString()}</div>
+                      )}
+                    </div>
+                    <div className="w-3 h-3 bg-green-500 rounded-full" />
+                  </div>
+                  <button
+                    onClick={stravaSyncActivities}
+                    disabled={stravaSyncing}
+                    className={`w-full rounded-xl py-3 font-bold ${stravaSyncing ? 'bg-gray-600 cursor-not-allowed' : 'bg-orange-600'}`}
+                  >
+                    {stravaSyncing ? 'Syncing...' : 'Sync Activities'}
+                  </button>
+                  <button
+                    onClick={stravaDisconnect}
+                    className="w-full bg-gray-700 rounded-xl py-2 text-sm text-gray-300"
+                  >
+                    Disconnect Strava
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={stravaConnect}
+                  className="w-full bg-orange-600 rounded-xl py-4 text-lg font-bold"
+                >
+                  Connect to Strava
+                </button>
+              )}
+              {stravaSyncResult && (
+                <div className={`text-center text-sm py-1 rounded ${stravaSyncResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+                  {stravaSyncResult.message}
+                </div>
+              )}
+              <div className="text-xs text-gray-500 text-center">
+                Import your runs, rides, swims and workouts from Strava
+              </div>
+            </div>
+
             <div className="bg-gray-800 rounded-xl p-3 space-y-2">
               <div className="text-gray-400 text-sm text-center">Data Summary</div>
               <div className="grid grid-cols-2 gap-2 text-center">
