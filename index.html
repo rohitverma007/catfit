@@ -855,7 +855,7 @@
   };
 
   const stravaConnect = () => {
-    const clientId = '143498';
+    const clientId = '205924';
     const redirectUri = encodeURIComponent(window.location.origin + '/');
     const scope = 'activity:read_all';
     window.location.href = `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}&scope=${scope}&approval_prompt=auto`;
