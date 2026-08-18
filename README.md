@@ -100,6 +100,7 @@ Originally designed for the **Cat S22 Flip** dumbphone, CatFit works on any devi
 
 ### Strava Integration
 - **Two-way sync** — import Strava activities into CatFit and push CatFit workouts to Strava
+- **Structured strength uploads** — strength sessions push real sets, reps and weight to Strava's workout log, so Strava renders the full session breakdown and auto-generates a muscle map
 - Automatic activity type mapping (runs, rides, swims, strength training, and more)
 - Pulls last 30 days of activity history with incremental sync
 - Includes workout details, heart rate data, and calories in exported activity descriptions

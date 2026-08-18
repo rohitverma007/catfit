@@ -1081,6 +1081,120 @@
     return lines.join('\n');
   };
 
+  // Strava accepts structured sets only for these sport types
+  const stravaJsonSportTypes = ['WeightTraining', 'HighIntensityIntervalTraining', 'Workout', 'Crossfit'];
+
+  // CatFit exercise name -> Strava exercise_type, from the supported exercise
+  // list in Strava's JSON upload format. Strava derives the muscle map from
+  // these, so an unrecognized value shows up as "Unknown" on the activity.
+  // 'DB Press' is listed under both chest and shoulders in exerciseDatabase;
+  // it maps to the chest reading since that's the more common logging.
+  const stravaExerciseTypes = {
+    'Bench Press': 'BARBELL_BENCH_PRESS',
+    'Incline Bench': 'INCLINE_BARBELL_BENCH_PRESS',
+    'DB Press': 'DUMBBELL_BENCH_PRESS',
+    'DB Flyes': 'DUMBBELL_FLYE',
+    'Cable Cross': 'CABLE_CROSSOVER',
+    'Push Ups': 'PUSH_UP_GENERIC',
+    'Dips': 'BODY_WEIGHT_DIP',
+    'Pull Ups': 'PULL_UP_GENERIC',
+    'Lat Pulldown': 'LAT_PULLDOWN',
+    'Seated Row': 'SEATED_CABLE_ROW',
+    'Bent Row': 'BENT_OVER_BARBELL_ROW',
+    'Deadlift': 'BARBELL_DEADLIFT',
+    'Face Pulls': 'FACE_PULL',
+    'OHP': 'OVERHEAD_BARBELL_PRESS',
+    'Lateral Raise': 'LATERAL_RAISE_GENERIC',
+    'Front Raise': 'FRONT_RAISE',
+    'Rear Delts': 'DUMBBELL_REAR_DELT_FLY',
+    'Barbell Curl': 'BARBELL_BICEPS_CURL',
+    'DB Curl': 'STANDING_DUMBBELL_BICEPS_CURL',
+    'Hammer Curl': 'DUMBBELL_HAMMER_CURL',
+    'Preacher Curl': 'EZ_BAR_PREACHER_CURL',
+    'Cable Curl': 'CABLE_CURL',
+    'Pushdown': 'TRICEPS_PRESSDOWN',
+    'Overhead Ext': 'OVERHEAD_DUMBBELL_TRICEPS_EXTENSION',
+    'Skull Crush': 'SKULL_CRUSHER',
+    'Close Grip': 'CLOSE_GRIP_BARBELL_BENCH_PRESS',
+    'Squat': 'BARBELL_BACK_SQUAT',
+    'Leg Press': 'LEG_PRESS',
+    'Lunges': 'LUNGE_GENERIC',
+    'Leg Ext': 'MACHINE_LEG_EXTENSION',
+    'Leg Curl': 'LEG_CURL_GENERIC',
+    'Calf Raise': 'CALF_RAISE_GENERIC',
+    'Plank': 'PLANK_GENERIC',
+    'Crunches': 'CRUNCH',
+    'Leg Raises': 'LEG_RAISE_GENERIC',
+    'Ab Wheel': 'AB_WHEEL_ROLLOUT',
+    'Cable Crunch': 'CABLE_CRUNCH',
+    'Treadmill': 'CARDIO_GENERIC',
+    'Bike': 'CARDIO_GENERIC',
+    'Rowing': 'ROWING_MACHINE',
+    'Elliptical': 'CARDIO_GENERIC',
+    'Jump Rope': 'JUMP_ROPE',
+  };
+
+  // Custom exercise names fall back to the generic type for their body part
+  const stravaGroupFallbacks = {
+    chest: 'BENCH_PRESS_GENERIC', back: 'ROW_GENERIC', shoulders: 'SHOULDER_PRESS_GENERIC',
+    biceps: 'CURL_GENERIC', triceps: 'TRICEPS_EXTENSION_GENERIC', legs: 'SQUAT_GENERIC',
+    core: 'CORE_GENERIC', cardio: 'CARDIO_GENERIC',
+  };
+
+  const stravaExerciseType = (name) => {
+    if (stravaExerciseTypes[name]) return stravaExerciseTypes[name];
+    for (const [group, exercises] of Object.entries(exerciseDatabase)) {
+      if (exercises.includes(name)) return stravaGroupFallbacks[group];
+    }
+    return 'TOTAL_BODY_GENERIC';
+  };
+
+  // Build the JSON upload payload so Strava renders real sets and a muscle map.
+  // Returns null when the session has nothing loggable, which sends the push
+  // down the manual-activity path instead.
+  const buildStravaSetsPayload = (session) => {
+    const startMs = new Date(session.startTime || session.date).getTime();
+    if (!Number.isFinite(startMs)) return null;
+    const elapsed = Math.round((session.duration || 1) * 60);
+
+    const sets = [];
+    for (const ex of session.exercises) {
+      const exercise_type = stravaExerciseType(ex.name);
+      const cardio = isCardio(ex.name);
+      for (const s of ex.sets) {
+        const set = { exercise_type };
+        if (cardio || s.isCardio) {
+          if (s.duration > 0) set.duration = Math.round(s.duration * 60); // stored in minutes
+        } else {
+          if (s.reps > 0) set.repetitions = Math.round(s.reps);
+          if (s.weight > 0) set.weight = Math.round(s.weight * 10) / 10; // always kg internally
+        }
+        sets.push(set);
+      }
+    }
+    if (sets.length === 0) return null;
+
+    // CatFit keeps one timestamp per session rather than per set, so space the
+    // sets evenly across the session instead of inventing exact times.
+    const spacing = sets.length > 1 ? Math.floor(elapsed / sets.length) : 0;
+    sets.forEach((set, i) => {
+      set.start_time = new Date(startMs + i * spacing * 1000).toISOString();
+    });
+
+    const payload = {
+      version: '1.0',
+      start_time: new Date(startMs).toISOString(),
+      utc_offset: -new Date(startMs).getTimezoneOffset() * 60,
+      elapsed_time: elapsed,
+      creator: { name: 'CatFit' },
+      sets,
+    };
+    if (session.hr && session.hr.calories > 0) {
+      payload.total_calories = Math.round(session.hr.calories);
+    }
+    return payload;
+  };
+
   // Push a workout session to Strava
   const [stravaPushing, setStravaPushing] = useState(null); // session id being pushed
   const [stravaPushResult, setStravaPushResult] = useState(null);
@@ -1117,6 +1231,49 @@
     setStravaPushResult(null);
   };
 
+  // Upload structured sets, then poll until Strava finishes processing.
+  // The return value tells the caller whether falling back to a manual
+  // activity is safe — falling back after Strava already accepted the upload
+  // would leave the athlete with two copies of the same workout.
+  const stravaUploadSets = async (token, session, payload) => {
+    const res = await fetch('/api/strava/upload', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        name: (stravaPushName || 'CatFit Workout').slice(0, 200),
+        sport_type: stravaPushSport,
+        description: buildStravaDescription(session),
+        external_id: `catfit-${session.id}`,
+        payload,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    // Rejected at submission — nothing was created, so the fallback is safe
+    if (!res.ok || !data.id) return { accepted: false };
+
+    // Strava recommends polling no more than once a second; mean processing
+    // time is under 2 seconds, so bound the wait rather than spinning.
+    for (let attempt = 0; attempt < 15; attempt++) {
+      await new Promise(r => setTimeout(r, 1000));
+      const poll = await fetch(`/api/strava/upload?id=${data.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const status = await poll.json().catch(() => ({}));
+      if (!poll.ok) return { accepted: true, pending: true };
+      if (status.activity_id) return { accepted: true, activityId: status.activity_id };
+      if (status.error) {
+        // A re-push of the same session comes back as a duplicate — the
+        // activity already exists, so don't create a second one.
+        if (/duplicate/i.test(status.error)) return { accepted: true, duplicate: true };
+        return { accepted: false };
+      }
+    }
+    return { accepted: true, pending: true };
+  };
+
   const stravaPushWorkout = async () => {
     const session = stravaPushModal;
     if (!session || !stravaTokens) {
@@ -1131,6 +1288,42 @@
         setStravaPushResult({ ok: false, message: 'Strava auth expired — reconnect in Settings' });
         setStravaPushing(null);
         return;
+      }
+
+      const markPushed = (activityId) => setGymSessions(prev => prev.map(s =>
+        s.id === session.id ? { ...s, stravaExportId: activityId } : s
+      ));
+      const finish = (message) => {
+        setStravaPushResult({ ok: true, message });
+        setTimeout(() => setStravaPushModal(null), 1200);
+      };
+
+      // Strength sports carry real sets, reps and weight — and Strava builds
+      // the muscle map from them. Everything else stays a manual activity.
+      const payload = stravaJsonSportTypes.includes(stravaPushSport)
+        ? buildStravaSetsPayload(session)
+        : null;
+
+      if (payload) {
+        const upload = await stravaUploadSets(token, session, payload);
+        if (upload.activityId) {
+          markPushed(upload.activityId);
+          finish('Pushed to Strava with full set breakdown!');
+          setStravaPushing(null);
+          return;
+        }
+        if (upload.duplicate) {
+          finish('Already on Strava');
+          setStravaPushing(null);
+          return;
+        }
+        if (upload.pending) {
+          finish('Uploaded — Strava is still processing it');
+          setStravaPushing(null);
+          return;
+        }
+        // upload.accepted === false: Strava never created anything, so fall
+        // through to the manual activity rather than losing the workout
       }
 
       const res = await fetch('/api/strava/create', {
@@ -1151,11 +1344,8 @@
       const data = await res.json();
       if (res.ok) {
         // Mark session as pushed to avoid re-pushing
-        setGymSessions(prev => prev.map(s =>
-          s.id === session.id ? { ...s, stravaExportId: data.id } : s
-        ));
-        setStravaPushResult({ ok: true, message: 'Pushed to Strava!' });
-        setTimeout(() => setStravaPushModal(null), 1200);
+        markPushed(data.id);
+        finish('Pushed to Strava!');
       } else {
         setStravaPushResult({ ok: false, message: data.error || 'Failed to push' });
       }
