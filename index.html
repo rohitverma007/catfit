@@ -1355,6 +1355,46 @@
     setStravaPushing(null);
   };
 
+  // TEMPORARY probe — does PUT /activities/{id} accept sets on an activity that
+  // already exists? UpdatableActivity doesn't list a sets field, but the same
+  // reference also omitted data_type=json, which turned out to be real. Remove
+  // this block (and api/strava/update.js) once we have an answer either way.
+  const [stravaRetrofit, setStravaRetrofit] = useState(null);
+
+  const stravaRetrofitSets = async (session) => {
+    setStravaRetrofit({ busy: true, message: 'Sending sets to Strava...' });
+    try {
+      const token = await stravaGetValidToken();
+      if (!token) {
+        setStravaRetrofit({ message: 'Strava auth expired - reconnect in Settings' });
+        return;
+      }
+      const payload = buildStravaSetsPayload(session);
+      if (!payload) {
+        setStravaRetrofit({ message: 'This session has no sets to send' });
+        return;
+      }
+      const res = await fetch(`/api/strava/update?id=${session.stravaExportId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ sets: payload.sets }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStravaRetrofit({ message: `REJECTED (HTTP ${res.status}): ${data.error || 'no detail'} - so delete + re-push is the only path.` });
+        return;
+      }
+      // A 200 proves nothing on its own: Strava may accept the request and
+      // silently drop a field it doesn't recognize. The activity is the verdict.
+      setStravaRetrofit({
+        message: `Accepted ${payload.sets.length} sets (HTTP 200), but Strava may have dropped them. Open the activity and look for a set breakdown - that's the real answer.`,
+        link: `https://www.strava.com/activities/${session.stravaExportId}`,
+      });
+    } catch {
+      setStravaRetrofit({ message: 'Network error' });
+    }
+  };
+
   const stravaSyncActivities = async () => {
     setStravaSyncing(true);
     setStravaSyncResult(null);
@@ -2236,6 +2276,26 @@
                   >
                     {viewingSession.stravaExportId ? 'Push to Strava Again' : 'Push to Strava'}
                   </button>
+                )}
+                {stravaTokens && viewingSession.stravaExportId && (
+                  <div className="rounded-xl border border-yellow-600 p-3 space-y-2">
+                    <div className="text-xs text-yellow-400 font-bold">TEMP EXPERIMENT</div>
+                    <button
+                      onClick={() => stravaRetrofitSets(viewingSession)}
+                      disabled={stravaRetrofit?.busy}
+                      className="w-full rounded-xl py-3 font-bold bg-yellow-700 disabled:opacity-50"
+                    >
+                      {stravaRetrofit?.busy ? 'Sending...' : 'Try adding sets to this Strava activity'}
+                    </button>
+                    {stravaRetrofit?.message && (
+                      <div className="text-xs text-gray-200 leading-relaxed">
+                        {stravaRetrofit.message}
+                        {stravaRetrofit.link && (
+                          <> <a href={stravaRetrofit.link} target="_blank" rel="noopener noreferrer" className="text-orange-400 underline">Open on Strava</a></>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
                 {viewingSession.stravaId && (
                   <div className="text-center text-xs text-orange-400 py-1">Imported from Strava</div>
